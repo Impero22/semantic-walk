@@ -1,0 +1,12 @@
+[package]
+name = "semantic-quantum"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+semantic-combiner = { path = "../semantic-combiner" }
+semantic-colbert = { path = "../semantic-colbert" }
+semantic-walk = { path = "../semantic-walk" }
+
+[dev-dependencies]
+proptest = "1"

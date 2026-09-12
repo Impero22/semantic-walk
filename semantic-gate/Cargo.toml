@@ -1,0 +1,12 @@
+[package]
+name = "semantic-gate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+semantic-combiner = { path = "../semantic-combiner" }
+
+[dev-dependencies]
+semantic-colbert = { path = "../semantic-colbert" }
+proptest = "1.1"

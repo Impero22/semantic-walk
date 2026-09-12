@@ -1,0 +1,12 @@
+[package]
+name = "semantic-combiner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Il combinatore puro non ha dipendenze runtime: è una funzione matematica
+# che combina tre metriche (dense, sparse, colbert) in un punteggio unico.
+
+[dev-dependencies]
+proptest = "1"

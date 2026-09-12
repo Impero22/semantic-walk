@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 822d0262c0a9c7fdb8d0871bf798cb0c9a4a4d2aaf3981f3ff68d1e83c26093a # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, b = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.5160816346566315 }
+cc dc66645b7e1c59a426db5d100eeb53658427947962c1d0975eb14ea244f0dcec # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, b = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, w = [0.6252128716503762, 0.8697240368646478, -0.49493690851502387]
+cc bd9067bd92985a67b5d8a8a1bcf58e84b21c26d5b609292f7946d131b3feabb5 # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, w = [0.9003106035485906, 0.8195751881441748, -0.7198857916927655]

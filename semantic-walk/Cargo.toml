@@ -1,0 +1,10 @@
+[package]
+name = "semantic-walk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+semantic-combiner = { path = "../semantic-combiner" }
+
+[dev-dependencies]
+proptest = "1"

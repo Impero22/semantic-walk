@@ -1,0 +1,12 @@
+[package]
+name = "semantic-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Il ponte tra il cammino (walk) e il DTW: trasformazione geometrico-semantica pura"
+
+[dependencies]
+semantic-graph = { path = "../semantic-graph" }
+
+[dev-dependencies]
+proptest = "1"
