@@ -39,23 +39,30 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use crate::ColbertScorer;
 
 /// Nome simbolico della funzione C-ABI esposta dal motore C++ CrispEmbed.
-pub const CRISPEMBED_MAXSIM_SYMBOL: &str = "crispembed_maxsim";
+///
+/// Verificato dal vivo su .18 (13/09/26): il simbolo reale è
+/// `crispembed_colbert_score`, NON `crispembed_maxsim` (che non esiste).
+pub const CRISPEMBED_COLBERT_SCORE_SYMBOL: &str = "crispembed_colbert_score";
 
 /// Tipo della funzione C-ABI.
 ///
-/// * `query_tokens` — buffer contiguo `f32` dei token della query (`query_n × dim`).
-/// * `query_n` — numero di token della query.
-/// * `doc_tokens` — buffer contiguo `f32` dei token del documento (`doc_n × dim`).
-/// * `doc_n` — numero di token del documento.
+/// * `query_vecs` — buffer contiguo `f32` dei token della query (`n_query × dim`).
+/// * `n_query` — numero di token della query.
+/// * `doc_vecs` — buffer contiguo `f32` dei token del documento (`n_doc × dim`).
+/// * `n_doc` — numero di token del documento.
 /// * `dim` — dimensione di ogni vettore di token.
 ///
-/// Restituisce il punteggio MaxSim in `[-1.0, 1.0]`, o `NaN` per input invalidi.
-pub type CrispEmbedMaxsimFn = unsafe extern "C" fn(
-    query_tokens: *const f32,
-    query_n: usize,
-    doc_tokens: *const f32,
-    doc_n: usize,
-    dim: usize,
+/// Nota ABI: il motore C++ usa `int` (32-bit) per le dimensioni, non
+/// `usize`/`size_t` (64-bit). La firma rispecchia l'header `crispembed.h`.
+///
+/// Restituisce il punteggio MaxSim (late interaction), più alto = più
+/// rilevante. Q e D devono essere embedding per-token L2-normalizzati.
+pub type CrispEmbedColbertScoreFn = unsafe extern "C" fn(
+    query_vecs: *const f32,
+    n_query: i32,
+    doc_vecs: *const f32,
+    n_doc: i32,
+    dim: i32,
 ) -> f32;
 
 /// Provider FFI verso il motore C++ CrispEmbed.
@@ -87,7 +94,7 @@ impl CrispEmbedScorer {
     }
 
     /// Restituisce il puntatore alla funzione C-ABI, o `None` se non caricata.
-    fn raw_func(&self) -> Option<CrispEmbedMaxsimFn> {
+    fn raw_func(&self) -> Option<CrispEmbedColbertScoreFn> {
         let ptr = self.func.load(Ordering::Relaxed);
         if ptr.is_null() {
             None
@@ -143,14 +150,16 @@ impl ColbertScorer for CrispEmbedScorer {
             .flat_map(|row| row.iter().map(|&x| x as f32))
             .collect();
 
-        // Chiamata al motore C++.
+        // Chiamata al motore C++. Le dimensioni sono `int` (32-bit) per
+        // contratto ABI; i valori realistici (token per query/doc) stanno
+        // ampiamente dentro i32, quindi la conversione è sicura.
         let score = unsafe {
             func(
                 query_flat.as_ptr(),
-                query_tokens.len(),
+                query_tokens.len() as i32,
                 doc_flat.as_ptr(),
-                doc_tokens.len(),
-                dim,
+                doc_tokens.len() as i32,
+                dim as i32,
             )
         };
 
@@ -166,19 +175,21 @@ mod tests {
     use crate::ColbertScorer;
 
     /// Implementazione di test della C-ABI: replica la MaxSim in f32,
-    /// esattamente come farebbe il motore C++ reale.
-    unsafe extern "C" fn mock_crispembed_maxsim(
+    /// esattamente come farebbe il motore C++ reale. Firma allineata
+    /// all'header `crispembed.h` (dimensioni `int`, non `usize`).
+    unsafe extern "C" fn mock_crispembed_colbert_score(
         query_tokens: *const f32,
-        query_n: usize,
+        query_n: i32,
         doc_tokens: *const f32,
-        doc_n: usize,
-        dim: usize,
+        doc_n: i32,
+        dim: i32,
     ) -> f32 {
-        if query_tokens.is_null() || doc_tokens.is_null() || query_n == 0 || doc_n == 0 || dim == 0
+        if query_tokens.is_null() || doc_tokens.is_null() || query_n <= 0 || doc_n <= 0 || dim <= 0
         {
             return f32::NAN;
         }
 
+        let (query_n, doc_n, dim) = (query_n as usize, doc_n as usize, dim as usize);
         let q_slice = std::slice::from_raw_parts(query_tokens, query_n * dim);
         let d_slice = std::slice::from_raw_parts(doc_tokens, doc_n * dim);
 
@@ -214,7 +225,7 @@ mod tests {
     }
 
     fn scorer_caricato() -> CrispEmbedScorer {
-        CrispEmbedScorer::new(mock_crispembed_maxsim as *const c_void)
+        CrispEmbedScorer::new(mock_crispembed_colbert_score as *const c_void)
     }
 
     #[test]
