@@ -49,13 +49,19 @@ impl KinematicAligner {
             for j in window_start..=window_end {
                 let p_b = &seq_b[j - 1];
 
+                let sim_dense = 1.0 - (p_a.dense - p_b.dense).abs();
+                let sim_sparse = 1.0 - (p_a.sparse - p_b.sparse).abs();
+                let sim_colbert = 1.0 - (p_a.colbert - p_b.colbert).abs();
+
                 let axes = NormalizedAxes::normalize(
-                    (p_a.dense - p_b.dense).abs(),
-                    (p_a.sparse - p_b.sparse).abs(),
-                    (p_a.colbert - p_b.colbert).abs(),
+                    sim_dense,
+                    sim_sparse,
+                    sim_colbert,
                     LAMBDA_CALIBRATO,
                 );
-                let local_cost = combine(&axes, PESI_CALIBRATI);
+
+                let combined_sim = combine(&axes, PESI_CALIBRATI);
+                let local_cost = (1.0 - combined_sim).max(0.0);
 
                 let min_prev = cost_matrix[i - 1][j]
                     .min(cost_matrix[i][j - 1])
@@ -125,6 +131,7 @@ mod tests {
 
         let res = aligner.align(&seq_a, &seq_b).unwrap();
         assert_eq!(res.warp_path.len(), 2);
+        assert!(res.normalized_score < 1e-3);
         assert_eq!(res.divergence_token, 0.0);
     }
 }
