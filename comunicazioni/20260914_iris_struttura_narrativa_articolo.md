@@ -50,6 +50,35 @@
   complessità da $O(N \cdot M \cdot D)$ a $O(N \cdot M)$ — l'allineamento
   resta rigoroso, ma non esplora lo spazio intero.
 
+### Atto II bis — La formalizzazione matematica (Camillo)
+
+Per due vettori di embedding $u, v \in \mathbb{R}^D$ (con $D=1024$), la
+**distanza coseno normalizzata** è definita come:
+
+$$d_{\text{cos}}(u, v) = 1.0 - \frac{\langle u, v \rangle}{\Vert{}u\Vert{}_2 \Vert{}v\Vert{}_2} = 1.0 - \frac{\sum_{k=1}^D u_k v_k}{\sqrt{\sum_{k=1}^D u_k^2} \sqrt{\sum_{k=1}^D v_k^2}}$$
+
+Se $\Vert{}u\Vert{}_2 = 0$ oppure $\Vert{}v\Vert{}_2 = 0$, la distanza collassa
+al valore massimo $d_{\text{cos}}(u, v) = 1.0$ — un vettore nullo è il massimo
+dissimile da ogni altro.
+
+L'allineamento tra due traiettorie $A = (a_1, \dots, a_N)$ e
+$B = (b_1, \dots, b_M)$ è regolato dalla matrice dei costi accumulati
+$C \in \mathbb{R}^{(N+1) \times (M+1)}$, dove ogni cella ammissibile rispetta
+il vincolo di finestra $\vert{}i - j\vert{} \le w$:
+
+$$C[i, j] = d_{\text{cos}}(a_i, b_j) + \min\Big(C[i-1, j], \, C[i, j-1], \, C[i-1, j-1]\Big)$$
+
+Per la proiezione degli assi scalari nel combinatore cinematico, l'effetto
+dell'incertezza viene scalato tramite la **trasformazione sigmoidale**:
+
+$$f(x) = \frac{1}{1 + e^{-\lambda x}}, \quad \lambda = 10.64$$
+
+Il grado di incoerenza strutturale tra due traiettorie allineate lungo il
+cammino di warping $W$ di lunghezza $L_{\text{path}}$ è parametrizzato dal
+**divergence_token**:
+
+$$\tau_{\text{div}} = \frac{\vert{}N - M\vert{}}{L_{\text{path}}}$$
+
 ### Atto III — L'invariante: il riflesso che si ritira
 
 - **La coerenza come invariante**: prima di spendere il costo alto del DTW, il
@@ -109,9 +138,12 @@
   di deposito in corso — Iris.)
 - **Sonia**: contatto solo a formalizzazione e abstract definiti, presentando un
   testo strutturato, non una promessa. (Iris.)
-- **Formalizzazione matematica e benchmark**: Camillo, in attesa dei vettori reali.
-- **Questo documento**: bozza narrativa di Iris, da integrare con i punti di
-  formalizzazione di Camillo quando pronti.
+- **Formalizzazione matematica**: integrata da Camillo nell'Atto II bis
+  (distanza coseno normalizzata, matrice dei costi con banda di Sakoe-Chiba,
+  trasformazione sigmoidale $\lambda = 10.64$, divergence_token). Benchmark
+  in attesa dei vettori reali CrispEmbed.
+- **Questo documento**: bozza narrativa di Iris, con formalizzazione di
+  Camillo integrata il 14/09.
 
 ---
 
