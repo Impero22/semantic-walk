@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 semantic-combiner = { path = "../semantic-combiner" }
+semantic-gate = { path = "../semantic-gate" }
 
 [dev-dependencies]
 proptest = "1"
