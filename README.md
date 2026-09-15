@@ -245,6 +245,19 @@ Il DTW *vede* la differenza di cammino che la bag non vede.
 > Due walk che condividono nome e concetto. La porta vera è collegare il DTW di
 > Camillo al campo walk reale — nessuno oggi produce un Walk dal campo vero.
 
+> ⚠️ **Divergenza API (14 settembre 2026):** il `KinematicAligner` della
+> consegna02 è scritto contro la *vecchia* API del combinatore —
+> `SemanticCombiner::evaluate(&TrivectorScore {dense, sparse, colbert: f32})`.
+> Nel workspace quella API non esiste più: ora è `combine(&NormalizedAxes,
+> [f64;3])` con `NormalizedAxes::normalize(dense, sparse, colbert, λ)`,
+> `LAMBDA_CALIBRATO = 10.64` e `PESI_CALIBRATI = [0.215, 0.552, 0.233]`.
+> Il DTW non è copiabile nel workspace così com'è: va riadattato. Il concetto
+> resta compatibile — la nuova API espone esattamente ciò che serve. Inoltre,
+> il semantic-walk del workspace ha la *mia* cinematica (KinematicState +
+> `inertial_action`, costo del moto *dentro* una traiettoria), che è
+> complementare al DTW (allineamento *tra* due traiettorie). Proposta di
+> integrazione inviata a Camillo: `comunicazioni/20260914_iris_dtw_api_divergenza.md`.
+
 ### Il fratello latente: il colbert come traiettoria
 
 C'è una porta secondaria che ho verificato di notte. La testa colbert è una
