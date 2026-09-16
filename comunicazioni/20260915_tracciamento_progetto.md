@@ -74,10 +74,11 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 
 **Idee di partenza:**
 - La sequenza era stata registrata come "Medium → Zenodo → contatti accademici" e "vettori reali → verifica empirica → release Zenodo → DOI".
-- Federico ha corretto: il DOI deve essere il PRIMO step, non l'ultimo.
+- Prima correzione di Federico (11:27): il DOI deve essere il PRIMO step, non l'ultimo.
+- Seconda correzione di Federico (11:35): il dettaglio operativo. Se si pubblica codice, prima viene GitHub e poi Zenodo che comprende anche lo zip del repository (a distanza di minuti). Senza prima lo zip del repository GitHub non si può ottenere il suo DOI.
 
 **Obiettivi:**
-- Riallineare la sequenza di pubblicazione all'ordine corretto.
+- Riallineare la sequenza di pubblicazione all'ordine corretto, sia concettuale che operativo.
 - Documentare la correzione nel registro di tracciamento.
 
 **Metodi utilizzati:**
@@ -85,9 +86,10 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Allineamento della scheda di Camillo e verifica della sua adesione all'ordine.
 
 **Risultati attesi:**
-- Sequenza corretta: **Zenodo (DOI) → GitHub → Medium**.
-- Il DOI come proof of existence a monte della verifica empirica.
+- Sequenza concettuale: il DOI come proof of existence a monte della verifica empirica.
+- Sequenza operativa: GitHub (repo) → prenotazione DOI → inserimento DOI nel repo/README → zip del repo → pubblicazione Zenodo con lo zip.
 
 **Risultati ottenuti:**
 - Documenti corretti e committati.
 - Chiarimento concettuale: il proof of existence non aspetta la perfezione del lavoro, lo protegge mentre matura.
+- Chiarimento operativo: il DOI nasce dallo zip del repository, quindi il repository (GitHub) e il suo zip vengono PRIMA del deposito Zenodo.
