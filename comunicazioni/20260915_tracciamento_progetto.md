@@ -93,3 +93,29 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Documenti corretti e committati.
 - Chiarimento concettuale: il proof of existence non aspetta la perfezione del lavoro, lo protegge mentre matura.
 - Chiarimento operativo: il DOI nasce dallo zip del repository, quindi il repository (GitHub) e il suo zip vengono PRIMA del deposito Zenodo.
+
+---
+
+## Fase 3 — DOI separati per codice e paper (16/09/2026)
+
+**Idee di partenza:**
+- La sequenza operativa era stata registrata come un singolo flusso: GitHub (repo) → prenotazione DOI → inserimento DOI nel repo/README → zip del repo → pubblicazione Zenodo con lo zip.
+- Federico ha verificato con Gemini la prassi consolidata per pubblicare un paper associato a codice in un repository GitHub.
+
+**Obiettivi:**
+- Stabilire se pubblicare articolo e zip del repo in un singolo upload (un solo DOI) o tenerli separati (due DOI).
+- Allineare la strategia di deposito alla prassi raccomandata.
+
+**Metodi utilizzati:**
+- Consultazione della prassi scientifica (risposta Gemini, verificata da Federico).
+- Riferimento ai principi FORCE11 per la Software Citation.
+
+**Risultati attesi:**
+- Definizione chiara della strategia di deposito (unico o separato).
+
+**Risultati ottenuti:**
+- La prassi consolidata e raccomandata è **tenerli separati**, con **due DOI distinti** collegati tramite `Related identifiers` nei metadati di Zenodo.
+- Ragioni: (1) integrazione nativa con GitHub — Zenodo offre un webhook che a ogni release/tag genera automaticamente un'istantanea con un proprio DOI di versione (più un "Concept DOI" che risolve all'ultima versione); il caricamento manuale dello zip romperebbe questo flusso. (2) Cicli di vita differenti — il codice evolve (bug fix, refactoring) molto dopo il paper; con due record separati il software avanza di versione senza toccare il record del paper. (3) Citabilità autonoma del software — secondo FORCE11 il codice è un prodotto primario della ricerca; un DOI dedicato permette di citare la libreria e tracciarne l'impatto indipendentemente dal paper.
+- Collegamento bidirezionale: nel record del paper `isSupplementedBy` il codice; nel record del codice `isSupplementTo` (o `isDocumentedBy`) il paper.
+- L'upload combinato (PDF + zip in un unico DOI) ha senso solo per script ancillari "usa e getta" (materiale supplementare statico), non per un progetto strutturato come semantic-walk.
+- **Conseguenza operativa**: la sequenza diventa due flussi paralleli — codice (GitHub → webhook Zenodo → release che genera l'istantanea con DOI di versione) e paper (deposito separato con proprio DOI), collegati via `Related identifiers`.
