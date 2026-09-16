@@ -39,3 +39,31 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 ---
 
 *Le fasi successive verranno aggiunte qui, in ordine cronologico, con la stessa struttura.*
+
+---
+
+## Fase 1 — Banco di prova end-to-end (16/09/2026)
+
+**Idee di partenza:**
+- Il percorso completo ingest→gate→DTW→payload era validato solo da test unitari su vettori a 4 dimensioni.
+- Il passo successivo verso l'aggancio con CrispEmbed reale (D=1024) richiede un banco di prova che attraversi l'intero cammino con vettori dimensionalmente coerenti.
+
+**Obiettivi:**
+- Creare un test di integrazione che percorra l'intero semantic-walk con vettori D=1024.
+- Verificare il comportamento *semantico*: traiettorie simili → punteggio basso, divergenti → punteggio alto.
+- Fissare i contratti di ritiro permissivo (Timeout) e di risparmio (Blocca).
+
+**Metodi utilizzati:**
+- Test di integrazione `integrazione_end_to_end.rs` con vettori D=1024 a base ortonormale sparsa (semi concettuali).
+- Due gate: permissivo (soglia 0.0) e restrittivo (soglia 0.99).
+- Verifica del contratto `divergence_token` (strutturale) vs `normalized_score` (semantico).
+
+**Risultati attesi:**
+- Percorso completo funzionante con vettori realistici.
+- Distinzione chiara tra divergenza strutturale e semantica.
+
+**Risultati ottenuti:**
+- 8 test di integrazione, tutti verdi; suite totale 128 test, 0 falliti.
+- Scoperta importante: `divergence_token` misura la divergenza *strutturale* (differenza di lunghezza |n−m|/path_len), NON quella semantica. Due traiettorie ortogonali di pari lunghezza hanno token 0; è `normalized_score` a catturare la divergenza semantica.
+- Test dedicato che fissa il contratto di `divergence_token`.
+- Commit `5f05b16`: banco di prova pronto per l'aggancio immediato quando arriveranno i vettori CrispEmbed reali.
