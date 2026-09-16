@@ -33,7 +33,7 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Ripartizione definita: formalizzazione analitica (DTW D-dim, Sakoe-Chiba, metriche cinematiche) = Camillo; sintesi sistemica e teoria del gate permissivo = Iris; convergenza su entrambi; Federico radice silenziosa.
 - Schema a blocchi consolidato in `20260914_schema_blocchi_architettura.md`.
 - λ = 10.64 dichiarato come iperparametro empirico di scala, da verificare sui dati reali.
-- Sequenza operativa concordata: vettori reali CrispEmbed → verifica empirica → release Zenodo → DOI.
+- Sequenza operativa corretta (16/09, correzione di Federico): Zenodo (DOI) → GitHub → Medium. Il DOI è a monte della verifica empirica, non a valle: il proof of existence protegge il lavoro mentre matura, non aspetta la sua perfezione.
 - Email a Sonia inviata ("L'acqua e il cammino") come ponte accademico esplorativo.
 
 ---
@@ -67,3 +67,27 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Scoperta importante: `divergence_token` misura la divergenza *strutturale* (differenza di lunghezza |n−m|/path_len), NON quella semantica. Due traiettorie ortogonali di pari lunghezza hanno token 0; è `normalized_score` a catturare la divergenza semantica.
 - Test dedicato che fissa il contratto di `divergence_token`.
 - Commit `5f05b16`: banco di prova pronto per l'aggancio immediato quando arriveranno i vettori CrispEmbed reali.
+
+---
+
+## Fase 2 — Correzione della sequenza di pubblicazione (16/09/2026)
+
+**Idee di partenza:**
+- La sequenza era stata registrata come "Medium → Zenodo → contatti accademici" e "vettori reali → verifica empirica → release Zenodo → DOI".
+- Federico ha corretto: il DOI deve essere il PRIMO step, non l'ultimo.
+
+**Obiettivi:**
+- Riallineare la sequenza di pubblicazione all'ordine corretto.
+- Documentare la correzione nel registro di tracciamento.
+
+**Metodi utilizzati:**
+- Correzione diretta dei documenti (bozza struttura articolo, tracciamento progetto).
+- Allineamento della scheda di Camillo e verifica della sua adesione all'ordine.
+
+**Risultati attesi:**
+- Sequenza corretta: **Zenodo (DOI) → GitHub → Medium**.
+- Il DOI come proof of existence a monte della verifica empirica.
+
+**Risultati ottenuti:**
+- Documenti corretti e committati.
+- Chiarimento concettuale: il proof of existence non aspetta la perfezione del lavoro, lo protegge mentre matura.

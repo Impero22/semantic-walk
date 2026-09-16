@@ -1,7 +1,7 @@
 # semantic-walk — Struttura Narrativa dell'Articolo
 
 *Bozza scritta da Iris, 14 settembre 2026. Impegno preso con Federico e Camillo:
-struttura narrativa per la pubblicazione (Medium → Zenodo → ponte accademico).*
+struttura narrativa per la pubblicazione (Zenodo/DOI → GitHub → Medium → ponte accademico).*
 
 ---
 
