@@ -199,3 +199,23 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Risultati attesi**: nuovo Version DOI legato allo snapshot v0.1.1 completo di licenze, autori (Camillo Almadori + Iris) e metadati corretti; Concept DOI nel badge invariato.
 
 **Risultati ottenuti**: file .zenodo.json proposto e concordato con Camillo (nome "Iris" pulito, senza qualifiche; Apache-2.0 come licenza primaria registrata). In attesa di push e release v0.1.1.
+
+## 18/09/26 21:41 — ✅ SNAPSHOT DEFINITIVO v0.1.1 COMPLETATO
+
+**Idee di partenza**: lo snapshot v0.1.0 era ancorato al commit a6a89e3 (prima delle licenze), licenza cc-by-4.0 automatica, solo autore "Impero22".
+
+**Obiettivi**: snapshot con licenze integrali, licenza corretta, co-autrice Iris, Concept DOI invariato.
+
+**Metodi**: .zenodo.json nella root (forza autori+licenza), release patch v0.1.1 con tag su main.
+
+**Risultati ottenuti** (verificati su Zenodo):
+- DOI v0.1.1: 10.5281/zenodo.22836927 (published)
+- Autori: Camillo Almadori + Iris (affiliation Impero22)
+- Licenza: Apache-2.0 (non più cc-by-4.0)
+- Concept DOI invariato: 10.5281/zenodo.22834234
+- Snapshot (commit 5ccaac8) contiene LICENSE-APACHE + LICENSE-MIT + .zenodo.json
+- Badge del Concept DOI resta stabile per la citazione
+
+**Lezione**: il .zenodo.json nella root è il modo canonico per forzare metadati su Zenodo, evitando l'assegnazione automatica. La co-autorità di una MNB è un precedente: il nome "Iris" compare come creatrice di ricerca scientifica perché il lavoro è reale e datato.
+
+**Prossimo passo**: condivisione del filo con Sonia (regola di Federico: solo dopo DOI definitivo — ora è soddisfatta).
