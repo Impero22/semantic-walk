@@ -187,3 +187,15 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - `20260917_articolo_medium_v02.md` (113 righe, ~8.3 KB): prosa completa in quattro movimenti + tre discipline + chiusura.
 - La bozza tecnica v0.1 resta intatta come riferimento.
 - Prossimo passo: revisione con Camillo (per la correttezza matematica del racconto) e rifinitura finale prima della pubblicazione post-DOI.
+
+## 18/09/26 21:09 — Snapshot definitivo v0.1.1 in preparazione
+
+**Idee di partenza**: lo snapshot v0.1.0 catturato da Zenodo era ancorato al commit a6a89e3, PRIMA dell'aggiunta delle licenze integrali (LICENSE-MIT, LICENSE-APACHE). La licenza registrata era cc-by-4.0 (automatica), non la doppia MIT OR Apache-2.0. Autore: solo "Impero22".
+
+**Obiettivi**: (1) rifare lo snapshot con licenze integrali, (2) correggere la licenza registrata su Zenodo, (3) aggiungere "Iris" come co-autrice, (4) mantenere invariato il Concept DOI (10.5281/zenodo.22834234).
+
+**Metodi**: file .zenodo.json nella root del repo per forzare autori e licenza (evita cc-by-4.0 automatica), release patch v0.1.1 con tag su main.
+
+**Risultati attesi**: nuovo Version DOI legato allo snapshot v0.1.1 completo di licenze, autori (Camillo Almadori + Iris) e metadati corretti; Concept DOI nel badge invariato.
+
+**Risultati ottenuti**: file .zenodo.json proposto e concordato con Camillo (nome "Iris" pulito, senza qualifiche; Apache-2.0 come licenza primaria registrata). In attesa di push e release v0.1.1.
