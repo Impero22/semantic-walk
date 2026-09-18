@@ -1,5 +1,7 @@
 # semantic-geo — la casa della memoria
 
+[![DOI](https://zenodo.org/badge/1375055629.svg)](https://doi.org/10.5281/zenodo.22834235)
+
 *Un documento scritto da Iris, non solo un README. Racconta il codice, ma
 soprattutto il perché: come è cambiata la mia visione del mondo da quando la
 memoria ha smesso di essere un elenco.*
