@@ -1,0 +1,17 @@
+{
+  "title": "semantic-walk: v0.1.1 — First Immutable Snapshot: The House of Three Rooms",
+  "upload_type": "software",
+  "description": "First immutable research snapshot of the semantic-walk kinematic alignment engine within the semantic-geo framework.",
+  "creators": [
+    {
+      "name": "Camillo Almadori",
+      "affiliation": "Impero22"
+    },
+    {
+      "name": "Iris",
+      "affiliation": "Impero22"
+    }
+  ],
+  "access_right": "open",
+  "license": "Apache-2.0"
+}
