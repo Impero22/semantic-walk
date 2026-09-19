@@ -235,3 +235,14 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Risultati attesi**: frontiera NON degenere (prima era sempre 1).
 - **Risultati ottenuti**: frontiera varia correttamente (dominance=0: 17.2%→3.3% al crescere di N; dominance=0.9: 1.3%). Ramo 0 non domina più per costruzione.
 - **Scoperta collaterale**: il pruning Pareto è controproducente a dominance alta (risparmio negativo fino a -945% a N=1024, dominance=0.9): il costo O(n²) del calcolo della frontiera supera il beneficio. Risultato fisico, non bug — documenta che il pruning conviene solo quando la frontiera è una frazione piccola dello spazio E il costo di calcolo è ammortizzato. Da considerare per la calibrazione dell'AdaptiveGate.
+
+## 19/09/26 — Review esterna: finding aggiuntivo winner extraction (Iris, da verifica Clerk)
+
+**Contesto**: dopo la chiusura di #4 e #6, Federico ha ricordato di chiedere la verifica a Clerk. Il report di Clerk ha confermato la correttezza di #4 e #6 e ha validato la scoperta collaterale sul pruning Pareto (con nota di equità minore sulla misura), ma ha segnalato un problema aggiuntivo non emerso dalla review esterna.
+
+**Problema — winner extraction non filtra i rami NaN** (CHIUSO):
+- **Idee di partenza**: il filtro della winner extraction (`lib.rs:292-295`) selezionava tutti i rami con `candidate_id == winner_id`, inclusi quelli NaN scartati dall'accumulo. Con action NaN e amplitude valida (campi `pub`), un ramo NaN poteva emergere come rappresentante del vincitore: `NaN.partial_cmp(&x)` → `None` → `Equal`, e `min_by` tiene il primo a parità.
+- **Metodi**: esteso il filtro della winner extraction con `&& !b.action.is_nan() && !b.amplitude.is_nan()`, coerente col guard di decoerenza (riga 272). Nuovo test `collapse_nan_non_emerge_come_rappresentante`.
+- **Errore mio durante lo sviluppo**: il primo calcolo atteso del test usava azioni (0.5, 0.7) sopra la soglia di decoerenza (0.5) → il secondo ramo veniva scartato, Ψ atteso sbagliato. Corretto con azioni sotto soglia (0.3, 0.4), Ψ = 1.679.
+- **Risultati ottenuti**: 35 test verdi (34 + 1 nuovo), 0 falliti. Fix committato.
+- **Lezione**: la verifica di Clerk ha trovato un problema che la review esterna non aveva visto. Federico aveva ragione a insistere: la verifica esterna è un'abitudine da coltivare, non un optional.

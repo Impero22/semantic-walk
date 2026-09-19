@@ -289,9 +289,19 @@ impl QuantumResolver {
         // Passaggio 4: nel gruppo afferente al vincitore, estrai il
         // rappresentante con azione minima, sovrascrivendo la sua ampiezza
         // con il valore totale accumulato Ψ(c*).
+        //
+        // Nota (segnalata da Clerk nella verifica di ca02d43): il filtro deve
+        // escludere anche i rami NaN, altrimenti un ramo NaN scartato
+        // dall'accumulo (riga 272) potrebbe emergere qui come rappresentante
+        // del vincitore: `NaN.partial_cmp(&x)` → `None` → `Equal`, e `min_by`
+        // tiene il primo a parità. Coerente con il filtro di decoerenza.
         branches
             .iter()
-            .filter(|b| b.candidate_id == Some(winner_id))
+            .filter(|b| {
+                b.candidate_id == Some(winner_id)
+                    && !b.action.is_nan()
+                    && !b.amplitude.is_nan()
+            })
             .min_by(|a, b| a.action.partial_cmp(&b.action).unwrap_or(std::cmp::Ordering::Equal))
             .map(|b| {
                 let mut winner = b.clone();
@@ -458,6 +468,32 @@ mod tests {
         assert_eq!(winner.candidate_id, Some(1));
         // Ψ(1) = 0.861 + 0.819 ≈ 1.680 (il NaN non contribuisce).
         assert!((winner.amplitude - 1.680).abs() < 1e-2);
+    }
+
+    #[test]
+    fn collapse_nan_non_emerge_come_rappresentante() {
+        // Segnalato da Clerk nella verifica di ca02d43: il filtro della
+        // winner extraction non escludeva i rami NaN scartati dall'accumulo.
+        // Con action NaN e amplitude valida (campi `pub`), un ramo NaN
+        // sullo stesso candidato del vincitore poteva emergere come
+        // rappresentante (`NaN.partial_cmp(&x)` → `None` → `Equal`, e
+        // `min_by` tiene il primo a parità). Il rappresentante deve essere
+        // sempre un ramo valido, non NaN.
+        let resolver = resolver();
+        let mut b_nan = branch(BranchType::Inertial, 1, f32::NAN);
+        b_nan.amplitude = 5.0; // ampiezza valida, azione ignota — passa il guard di accumulo? No: action NaN → scartato.
+        let branches = vec![
+            b_nan.clone(),                                  // NaN, scartato dall'accumulo
+            branch(BranchType::Geometric, 1, 0.3),          // ψ ≈ 0.861, vince
+            branch(BranchType::SemanticColbert, 1, 0.4),    // ψ ≈ 0.819
+        ];
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(1));
+        // Il rappresentante NON deve essere il ramo NaN, ma quello valido.
+        assert!(!winner.action.is_nan());
+        assert!(!winner.amplitude.is_nan());
+        // Ψ(1) = 0.861 + 0.819 ≈ 1.679 (il NaN non contribuisce).
+        assert!((winner.amplitude - 1.679).abs() < 1e-2);
     }
 
     // ============================================================
