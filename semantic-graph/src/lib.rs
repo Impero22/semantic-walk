@@ -84,7 +84,17 @@ impl Default for GraphConfig {
         GraphConfig {
             k: 5,
             soglia: 0.0,
-            percentile_cutoff: 0.0, // soglia statica pura (retrocompatibile)
+            // soglia statica pura (retrocompatibile).
+            //
+            // Valore raccomandato per la produzione con dataset a canale
+            // singolo (sola similarità Jaccard sulle celle): **0.50**.
+            // Calibrato dallo sweep su 153 traiettorie reali (fe35366):
+            // a 0.50 il grado medio converge a k=5, la varianza si dimezza
+            // (21.92→14.34), la connettività resta un'unica componente e il
+            // clustering si preserva (0.493→0.435). Sopra 0.5 la topologia
+            // degrada (clustering a 0.327 a 0.75, 22 componenti a 0.9).
+            // Da ricalibrare quando CrispEmbed fornirà sparse e colbert.
+            percentile_cutoff: 0.0,
             pesi: [0.6, 0.25, 0.15], // fusione canonica dal progetto
         }
     }
