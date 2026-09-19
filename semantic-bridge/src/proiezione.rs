@@ -45,6 +45,17 @@ impl TrasformazionePonte for ProiezionePunti {
             return None;
         }
 
+        // Finding #1 della review: `walk.dim` e `dizionario.dim` non erano
+        // mai comparati. Se il cammino è stato costruito con una dimensione
+        // diversa da quella dei centroidi, i punti proiettati avranno la
+        // dimensione sbagliata (quella del dizionario) mentre il chiamante
+        // consumerà il buffer aspettandosi `walk.dim`. Disallineamento
+        // dimensionale = ritiro geometrico, coerente con la filosofia
+        // del bridge (giudizio, non guasto).
+        if walk.dim != dizionario.dim {
+            return None;
+        }
+
         // La dimensione dei punti proiettati = dimensione dei centroidi.
         let d = dizionario.dim;
         let n = walk.celle.len();
@@ -300,5 +311,25 @@ mod tests {
             let atteso = if j % 2 == 0 { (0.9 * 1.0 + 0.8 * 1.0) / 1.7 } else { (0.9 * 1.0 + 0.8 * 0.0) / 1.7 };
             assert!((punti[j] - atteso).abs() < 1e-6, "j={j}");
         }
+    }
+
+    #[test]
+    fn dim_disallineate_ritiro() {
+        // Finding #1 della review: `walk.dim` e `dizionario.dim` non erano
+        // mai comparati. Un cammino costruito con dim diversa dai centroidi
+        // produceva punti con la dimensione del dizionario mentre il
+        // chiamante si aspettava quella del cammino → buffer mal interpretato.
+        // Ora è un ritiro geometrico.
+        let w = Walk {
+            celle: &[0, 1],
+            pos: &[0, 1],
+            conf: &[0.9, 0.8],
+            colbert: &[1.0, 0.0, 0.0, 1.0],
+            dim: 3, // diverso dal dizionario (2)
+        };
+        let d = dizionario_esempio();
+        let mut out = [0.0f64; 6];
+        let r = ProiezionePunti::Centroide.proietta(&w, &d, &mut out);
+        assert!(r.is_none(), "dim disallineate devono produrre ritiro");
     }
 }

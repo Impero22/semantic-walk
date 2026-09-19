@@ -15,7 +15,7 @@ import json, urllib.request, numpy as np, time, os, sys
 from sklearn.cluster import MiniBatchKMeans
 
 QDRANT = 'http://localhost:6332'
-API_KEY = 'CprsQW5HIbF7Kf1FG90MLwlDRJ8HRALg'
+API_KEY = os.environ.get('QDRANT_API_KEY', '')  # key da env, mai hardcodata
 K = 256  # celle semantiche
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))

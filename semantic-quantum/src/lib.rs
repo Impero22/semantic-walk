@@ -194,7 +194,15 @@ impl BranchBuilder {
         colbert_similarity: f32,
         kappa_break: f32,
     ) -> WalkBranch {
-        let s_colbert = (1.0 - colbert_similarity).max(0.0);
+        // Finding #3 della review: MaxSim può essere in [-1, 1] (non solo [0, 1]),
+        // e NaN deve produrre penalità massima, non costo zero (falso "perfetto").
+        // NaN-as-absence: un costo ignoto trattato come massimo, coerente con
+        // compute_colbert_cost (NaN → 1.0).
+        let s_colbert = if colbert_similarity.is_nan() {
+            1.0
+        } else {
+            (1.0 - colbert_similarity).clamp(0.0, 1.0)
+        };
         let (w_i, w_g, w_c) = self.weights;
         let total_action = w_i * s_inertial + w_g * s_geometric + w_c * s_colbert;
         let amplitude = (-total_action / kappa_break).exp();
@@ -256,7 +264,12 @@ impl QuantumResolver {
         for b in branches {
             let Some(cid) = b.candidate_id else { continue };
             // Filtro di decoerenza: oltre la soglia il ramo cessa di esistere.
-            if b.action > self.divergence_threshold {
+            // Finding #6 della review: NaN-as-absence — un ramo con azione o
+            // ampiezza NaN è uno stato ignoto, trattato come decoerente.
+            // `NaN > x` è `false`, quindi senza questo guard esplicito il ramo
+            // NaN passerebbe il filtro e avvelenerebbe l'accumulatore
+            // (0.0 + NaN = NaN), rendendo il vincitore non-deterministico.
+            if b.action > self.divergence_threshold || b.action.is_nan() || b.amplitude.is_nan() {
                 continue;
             }
             // L'ampiezza del ramo è già stata calcolata alla creazione
@@ -386,6 +399,68 @@ mod tests {
     }
 
     // ============================================================
+    // Finding #6 della review: NaN-as-absence nel collapse.
+    // Un ramo con azione o ampiezza NaN è uno stato ignoto → decoerente.
+    // ============================================================
+
+    #[test]
+    fn collapse_scarta_azione_nan() {
+        // Rami con action NaN: devono essere trattati come decoerenti,
+        // non passare il filtro (`NaN > x` è false) e avvelenare l'accumulatore.
+        let resolver = resolver();
+        let mut b_nan = branch(BranchType::Inertial, 1, f32::NAN);
+        b_nan.amplitude = 1.0; // ampiezza valida, azione ignota
+        let branches = vec![b_nan];
+        // Nessun ramo valido → None (non un vincitore NaN).
+        assert!(resolver.collapse(&branches).is_none());
+    }
+
+    #[test]
+    fn collapse_scarta_ampiezza_nan() {
+        // Rami con amplitude NaN: stesso trattamento, decoerente.
+        let resolver = resolver();
+        let mut b_nan = branch(BranchType::Inertial, 1, 0.1);
+        b_nan.amplitude = f32::NAN;
+        let branches = vec![b_nan];
+        assert!(resolver.collapse(&branches).is_none());
+    }
+
+    #[test]
+    fn collapse_ignora_rami_nan_e_vince_quello_valido() {
+        // Un ramo NaN (azione) e uno valido: il NaN non deve avvelenare
+        // l'accumulatore (0.0 + NaN = NaN); vince quello valido.
+        let resolver = resolver();
+        let mut b_nan = branch(BranchType::Inertial, 1, f32::NAN);
+        b_nan.amplitude = 1.0;
+        let branches = vec![
+            b_nan,
+            branch(BranchType::Geometric, 2, 0.1), // valido
+        ];
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(2));
+        // L'ampiezza del vincitore è quella pulita, non NaN.
+        assert!(!winner.amplitude.is_nan());
+    }
+
+    #[test]
+    fn collapse_ramo_misto_nan_non_avvelena_il_gruppo() {
+        // Due rami validi sullo stesso candidato + uno NaN sullo stesso:
+        // il NaN deve essere ignorato, l'accumulo resta pulito.
+        let resolver = resolver();
+        let mut b_nan = branch(BranchType::SemanticColbert, 1, f32::NAN);
+        b_nan.amplitude = 1.0;
+        let branches = vec![
+            branch(BranchType::Inertial, 1, 0.3),        // ψ ≈ 0.861
+            branch(BranchType::Geometric, 1, 0.4),       // ψ ≈ 0.819
+            b_nan,                                       // NaN, ignorato
+        ];
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(1));
+        // Ψ(1) = 0.861 + 0.819 ≈ 1.680 (il NaN non contribuisce).
+        assert!((winner.amplitude - 1.680).abs() < 1e-2);
+    }
+
+    // ============================================================
     // BranchBuilder — assemblaggio dell'azione dai tre canali
     // ============================================================
 
@@ -421,6 +496,32 @@ mod tests {
         // diventare negativo — l'azione è un costo, mai un guadagno.
         let b = builder().build_branch(BranchType::SemanticColbert, 1, 0.0, 0.0, 1.05, 2.0);
         assert!(b.action >= 0.0);
+    }
+
+    #[test]
+    fn builder_nan_colbert_penalita_massima() {
+        // Finding #3 della review: NaN in colbert_similarity produceva
+        // s_colbert = 0.0 (costo zero, falso "perfetto") per via di
+        // f64::max(NaN, 0.0) == 0.0. Ora deve diventare penalità massima.
+        let b = builder().build_branch(BranchType::SemanticColbert, 1, 0.0, 0.0, f32::NAN, 2.0);
+        // w_C * 1.0 = 0.3
+        assert!((b.action - 0.3).abs() < 1e-6, "NaN deve dare costo massimo, ottenuto {}", b.action);
+    }
+
+    #[test]
+    fn builder_colbert_range_negativo_clampato() {
+        // Finding #3 della review: MaxSim può essere in [-1, 1], non solo [0, 1].
+        // colbert_similarity = -0.5 (MaxSim negativo) → costo 1.0 (clampato),
+        // mai 1.5 (fuori range) come accadeva con .max(0.0) senza clamp superiore.
+        let b = builder().build_branch(BranchType::SemanticColbert, 1, 0.0, 0.0, -0.5, 2.0);
+        assert!((b.action - 0.3).abs() < 1e-6, "MaxSim negativo deve dare costo massimo clampato, ottenuto {}", b.action);
+    }
+
+    #[test]
+    fn builder_colbert_range_sopra_uno_clampato() {
+        // colbert_similarity > 1.0 (rumore): costo clampato a 0.0, mai negativo.
+        let b = builder().build_branch(BranchType::SemanticColbert, 1, 0.0, 0.0, 1.5, 2.0);
+        assert!((b.action - 0.0).abs() < 1e-6, "MaxSim > 1 deve dare costo zero, ottenuto {}", b.action);
     }
 
     #[test]

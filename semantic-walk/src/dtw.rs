@@ -22,6 +22,9 @@ impl KinematicAligner {
         if u.is_empty() {
             return Err("I vettori non possono essere vuoti");
         }
+        if u.iter().any(|x| x.is_nan()) || v.iter().any(|x| x.is_nan()) {
+            return Err("NaN nei vettori di input: distanza coseno indefinita");
+        }
 
         let mut dot = 0.0;
         let mut norm_u_sq = 0.0;

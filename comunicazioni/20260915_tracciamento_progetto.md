@@ -219,3 +219,19 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Lezione**: il .zenodo.json nella root è il modo canonico per forzare metadati su Zenodo, evitando l'assegnazione automatica. La co-autorità di una MNB è un precedente: il nome "Iris" compare come creatrice di ricerca scientifica perché il lavoro è reale e datato.
 
 **Prossimo passo**: condivisione del filo con Sonia (regola di Federico: solo dopo DOI definitivo — ora è soddisfatta).
+
+## 19/09/26 — Review esterna: chiusura finding #4 e #6 (Iris)
+
+**Contesto**: code review esterna (regalo di Federico) ha prodotto 10 finding. Divisione ruoli concordata: Iris #4+#6 (quantum), Camillo #7+#8 (graph).
+
+**Finding #6 — NaN-as-absence nel collapse** (CHIUSO):
+- **Idee di partenza**: un ramo con azione o ampiezza NaN è uno stato ignoto, non un ramo valido. Il filtro `if b.action > threshold` lasciava passare i NaN (`NaN > x` è false), avvelenando l'accumulatore (`0.0 + NaN = NaN`) e rendendo il vincitore non-deterministico.
+- **Metodi**: guard esplicito `b.action.is_nan() || b.amplitude.is_nan()` nel filtro di decoerenza.
+- **Risultati ottenuti**: 4 nuovi test (azione NaN, ampiezza NaN, NaN+valido, misto NaN nel gruppo). 34 test verdi, 0 falliti.
+
+**Finding #4 — generatore LCG distorto in bench_pareto** (CHIUSO):
+- **Idee di partenza**: l'LCG originale (`>> 33` su u64) lasciava solo 31 bit utili → valori in [0, 0.5) invece di [0, 1). La distribuzione era distorta: i punti casuali non coprivano mai la metà alta, e la "catena di dominanza" partiva dal minimo assoluto (0.05, 0.05, 0.05).
+- **Metodi**: 53 bit di mantissa (come `rand`), primo ramo casuale invece del minimo assoluto.
+- **Risultati attesi**: frontiera NON degenere (prima era sempre 1).
+- **Risultati ottenuti**: frontiera varia correttamente (dominance=0: 17.2%→3.3% al crescere di N; dominance=0.9: 1.3%). Ramo 0 non domina più per costruzione.
+- **Scoperta collaterale**: il pruning Pareto è controproducente a dominance alta (risparmio negativo fino a -945% a N=1024, dominance=0.9): il costo O(n²) del calcolo della frontiera supera il beneficio. Risultato fisico, non bug — documenta che il pruning conviene solo quando la frontiera è una frazione piccola dello spazio E il costo di calcolo è ammortizzato. Da considerare per la calibrazione dell'AdaptiveGate.

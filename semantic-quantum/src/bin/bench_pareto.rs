@@ -23,9 +23,16 @@ use semantic_quantum::{BranchBuilder, BranchType, QuantumResolver, WalkBranch};
 /// un unico punto (massima dominanza, massimo scarto).
 fn gen_branches(n: usize, dominance: f32, seed: u64) -> Vec<BranchCostVector> {
     let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    // Finding #4 della review: l'LCG originale (`>> 33` su u64) lasciava solo
+    // 31 bit utili, producendo valori in [0, 0.5) invece che [0, 1). Questo
+    // distorceva la distribuzione: i punti di partenza casuali non coprivano
+    // mai la metà alta dello spazio, e la "catena di dominanza" era costruita
+    // sul minimo assoluto (0.05, 0.05, 0.05).
+    //
+    // Fix: 53 bit di mantissa (come `rand`), uniforme in [0, 1).
     let mut next = move || {
         state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((state >> 33) as f32) / (u32::MAX as f32)
+        (((state >> 11) as f64) / ((1u64 << 53) as f64)) as f32
     };
 
     let builder = BranchBuilder::new((0.4, 0.3, 0.3));
@@ -33,16 +40,22 @@ fn gen_branches(n: usize, dominance: f32, seed: u64) -> Vec<BranchCostVector> {
 
     // Strategia a catena di dominanza controllata.
     //
-    // Il ramo 0 è il punto "ancora" con costi bassi. Ogni ramo successivo è
-    // il ramo precedente + incrementi non negativi su *almeno un* asse,
-    // con probabilità `dominance` di essere dominato dal precedente.
+    // Il primo ramo è un punto casuale nello spazio dei costi (NON il minimo
+    // assoluto): così la catena di dominanza è genuina e il ramo 0 non domina
+    // per costruzione. Ogni ramo successivo è il precedente + incrementi non
+    // negativi su *almeno un* asse, con probabilità `dominance` di essere
+    // dominato dal precedente.
     //
     // A dominance=1: catena pura — ogni ramo domina tutti i successivi
     // (frontiera = 1, massimo scarto).
     // A dominance=0: incrementi casuali su assi casuali — per lo più
     // incomparabili (caso peggiore per il pruning).
     // A dominance=0.5: metà dei rami è dominata dal precedente, metà no.
-    let mut cur = (0.05f32, 0.05f32, 0.05f32);
+    let mut cur = (
+        0.05 + next() * 0.9,
+        0.05 + next() * 0.9,
+        0.05 + next() * 0.9,
+    );
     for i in 0..n {
         let id = (i % 1000) as u64;
         let (s_i, s_g, s_c) = if i == 0 {

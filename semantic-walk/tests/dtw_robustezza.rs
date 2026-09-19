@@ -57,3 +57,30 @@ fn dtw_lunghezze_diverse_allinea() {
     assert!(res.normalized_score >= 0.0);
     assert!(res.divergence_token >= 0.0);
 }
+
+#[test]
+fn nan_nei_vettori_errore_non_distanza_zero() {
+    // Finding #2 della review: NaN in input produceva 0.0 (falso "identico")
+    // per via di f64::max(NaN, 0.0) == 0.0. Ora deve ritornare un errore.
+    let u = vec![f64::NAN, 0.0, 0.0];
+    let v = vec![1.0, 0.0, 0.0];
+    let res = KinematicAligner::cosine_distance(&u, &v);
+    assert!(res.is_err(), "NaN in input deve produrre errore, non distanza 0.0");
+}
+
+#[test]
+fn nan_in_entrambi_i_vettori_errore() {
+    let u = vec![f64::NAN, f64::NAN];
+    let v = vec![f64::NAN, f64::NAN];
+    let res = KinematicAligner::cosine_distance(&u, &v);
+    assert!(res.is_err(), "NaN in entrambi i vettori deve produrre errore");
+}
+
+#[test]
+fn align_con_nan_errore() {
+    let aligner = KinematicAligner::new(3);
+    let a = vec![vec![f64::NAN, 0.0], vec![0.0, 1.0]];
+    let b = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+    let res = aligner.align(&a, &b);
+    assert!(res.is_err(), "sequenza con NaN deve produrre errore nell'allineamento");
+}
