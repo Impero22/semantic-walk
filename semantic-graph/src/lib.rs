@@ -64,13 +64,18 @@ impl Edge {
 /// Configurazione del grafo.
 ///
 /// - `k` — i vicini per nodo nella costruzione k-nearest.
-/// - `soglia` — filtro di qualità in `[0, 1]`: un arco esiste solo se il
-///   punteggio combinato lo supera.
+/// - `soglia` — floor assoluto in `[0, 1]`: un arco esiste solo se il
+///   punteggio combinato supera *almeno* questo valore.
+/// - `percentile_cutoff` — soglia dinamica in `[0, 1]`: per ogni nodo, la
+///   soglia effettiva è `max(soglia, percentile dei punteggi dei top-k)`.
+///   Con `0.0` la soglia dinamica è disattivata (comportamento statico
+///   puro, retrocompatibile).
 /// - `pesi` — i pesi del combinatore `[dense, sparse, colbert]`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GraphConfig {
     pub k: usize,
     pub soglia: f64,
+    pub percentile_cutoff: f64,
     pub pesi: [f64; 3],
 }
 
@@ -79,6 +84,7 @@ impl Default for GraphConfig {
         GraphConfig {
             k: 5,
             soglia: 0.0,
+            percentile_cutoff: 0.0, // soglia statica pura (retrocompatibile)
             pesi: [0.6, 0.25, 0.15], // fusione canonica dal progetto
         }
     }
@@ -126,6 +132,17 @@ impl Graph {
         self.archi
             .binary_search_by(|e| (e.from, e.to).cmp(&(from, to)))
             .is_ok()
+    }
+
+    /// I vicini di un nodo: tutti i nodi collegati ad esso da un arco.
+    ///
+    /// La ricerca è lineare sugli archi; il risultato non è ordinato.
+    pub fn vicini(&self, n: NodeId) -> Vec<NodeId> {
+        self.archi
+            .iter()
+            .filter(|e| e.from == n || e.to == n)
+            .map(|e| if e.from == n { e.to } else { e.from })
+            .collect()
     }
 }
 
