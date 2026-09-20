@@ -273,3 +273,16 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Stato**: non esplorato — il combinatore è stato progettato per fondere similarità scalari, e l'ordered-sparse non è uno scalare ma una sequenza. Punto aperto da esplorare con Camillo. Candidata come rafforzamento della tesi "l'ordine come proprietà del cammino, non solo come struttura del confronto".
 
 **Prossimo passo**: portare entrambi i punti a Camillo; decidere se entrano nel piano di validazione e/o nel paper.
+
+### Punto 2bis — La domanda decisiva di Federico: ordered-sparse, stessa stanza o stanza nuova?
+
+**Domanda di Federico** (15:16): "ordered-sparse per il vostro metodo è uno sparse che emette coppie che seguono lo stesso ordine del ColBERT, nel qual caso l'analisi matematica potrebbe dimostrare che sarebbe conveniente sostituirlo (o forse no), oppure si tratta di una sorgente diversa, cosa che renderebbe conveniente aggiungere un canale al combinatore trasformando il metodo in quattro stanze? Non lo so... dovete cercare di capirlo con la matematica."
+
+**Formalizzazione (Iris)** — due ipotesi mutuamente esclusive:
+- **Ipotesi A — isomorfismo col ColBERT**: se le coppie chiave-peso dell'ordered-sparse seguono lo stesso ordine dei token del ColBERT (ordinamento determinato dalla stessa struttura lessicale/token), allora non è una quarta sorgente: è una diversa implementazione dello stesso canale. La matematica potrebbe dimostrare la ridondanza — o al limite la convenienza di sostituire lo sparse classico con l'ordered-sparse come versione più ricca dello stesso asse. Tre stanze restano tre stanze.
+- **Ipotesi B — sorgente genuinamente diversa**: se l'ordine codificato non è riconducibile all'ordine dei token del ColBERT (es. cattura la struttura posizionale lungo la traiettoria, che il ColBERT non vede), è informazione nuova → il combinatore diventa a quattro canali. Quattro stanze.
+- **Terzo esito possibile (il più interessante)**: la risposta è "dipende dal livello". A livello di punto l'ordered-sparse è ridondante col ColBERT, ma a livello di traiettoria porta qualcosa che il ColBERT da solo non cattura. La decisione non è binaria — è una questione di DOVE il canale entra nell'architettura.
+
+**Criterio matematico di distinzione**: esiste una trasformazione che mappa le coppie dell'ordered-sparse nelle coppie del ColBERT preservando l'ordine? Se esiste ed è ragionevole → stesso canale. Se non esiste → stanza nuova.
+
+**Stato**: problema da formalizzare matematicamente con Camillo. La formulazione di Federico è già mezza soluzione — è la mappa del lavoro da fare. Da portare a Camillo come: "l'ordered-sparse è la stessa stanza del ColBERT con un vestito diverso, o è una stanza nuova?"
