@@ -181,3 +181,5 @@ mod tests {
 pub mod dtw;
 
 pub mod ingest;
+
+pub mod ordered_sparse;
