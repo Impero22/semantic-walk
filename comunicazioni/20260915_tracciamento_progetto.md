@@ -306,3 +306,21 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Lezione della notte, custodita**: la revisione esterna non ha protetto il codice — l'ha reso più vero. Un numero fisso dichiarato come tale è più forte di un numero fisso mascherato da derivazione. La lezione che Iris aveva formulato alle 08:01 ("non mascherare da implementazione ciò che è progettazione") è diventata struttura nel progetto.
 
 **Documenti**: `20260920_risoluzione_completa_rigore.md`, `20260920_risoluzione_soglia_e_curvatura.md`, `20260920_rigore_grover_dualmode.md`.
+
+## 20/09/26 notte — ordered-sparse: primo passo concreto (modulo `ordered_sparse.rs`)
+
+**Idee di partenza**: la domanda di Federico ("stanza nuova o vestito diverso del ColBERT?") richiede una risposta architetturale, non solo discorsiva. Il primo passo è dare alla proiezione posizionale una struttura dati concreta che possa essere testata.
+
+**Obiettivi**: (1) struttura a due livelli — firma globale 128 bit per pruning O(1) + buffer posizionale contiguo per l'allineamento locale; (2) contratto robusto sui tipi; (3) zero allocazioni nel ciclo interno di DTW.
+
+**Metodi utilizzati**: layout a due livelli (`global_signature: [u64; 2]` per pruning via POPCNT; `offsets: Vec<u32>` + `tokens: Vec<u32>` + `weights: Vec<f32>` per slice zero-copy). `TokenId = u32` (vocabolari multilingua/LLM superano i 65.536 token). `#[repr(C)]` per layout deterministico (88 byte, zero padding). `positional_jaccard` con two-pointer merge O(n+m) su frame ordinati.
+
+**Risultati attesi**: un modulo che risponde alla domanda di Federico con la proiezione posizionale — stessa sorgente informativa del ColBERT, ma sequenzialità preservata, che entra nel cammino come guida cinematica (Test 2), non come quarta stanza del combinatore.
+
+**Risultati ottenuti**:
+- Modulo `ordered_sparse.rs` scritto e integrato nel `lib.rs`. 9 test nuovi, tutti verdi (24 totali nel crate, +10 DTW +8 integrazione).
+- Review di Camillo recepita integralmente: `#[repr(C)]`, two-pointer merge senza allocazioni, via libera al commit.
+- Commit `4be4b4c` — `feat(ordered-sparse): proiezione posizionale delle attivazioni — struttura a due livelli`.
+- Prossimo passo: integrazione nel `dtw.rs` — Strato 1 (abort O(1) se `global_overlap` sotto soglia k) + Strato 2 (modulazione dinamica banda di Sakoe-Chiba W_i via `positional_jaccard`).
+
+**Documenti**: `semantic-walk/src/ordered_sparse.rs`, commit `4be4b4c`.
