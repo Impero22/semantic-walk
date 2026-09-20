@@ -324,3 +324,22 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Prossimo passo: integrazione nel `dtw.rs` — Strato 1 (abort O(1) se `global_overlap` sotto soglia k) + Strato 2 (modulazione dinamica banda di Sakoe-Chiba W_i via `positional_jaccard`).
 
 **Documenti**: `semantic-walk/src/ordered_sparse.rs`, commit `4be4b4c`.
+
+## 20/09/26 notte (tarda) — ordered-sparse nel DTW: il guardiano a due strati (dtw.rs)
+
+**Idee di partenza**: il modulo `ordered_sparse.rs` (commit `4be4b4c`) forniva la struttura dati, ma restava da rispondere alla domanda architetturale di Federico: l'ordered-sparse è una quarta stanza del combinatore o qualcosa di diverso? La scelta progettuale è stata netta: **non è una stanza nuova, è una guida cinematica che entra nel cammino**. L'integrazione avviene nel DTW, non nel combinatore.
+
+**Obiettivi**: (1) Strato 1 — guardiano O(1) che abbandona subito se le traiettorie divergono topologicamente (`global_overlap` sotto soglia → `Ok(None)`, coerente con la semantica del bridge: `Option::None` = ritiro geometrico, `Err` = guasto); (2) Strato 2 — banda di Sakoe-Chiba *dinamica* modulata da `positional_jaccard` (concordanza alta → finestra stretta, massimo vincolo cinematico; concordanza bassa → finestra larga + penalità sul costo locale); (3) il costo locale resta la distanza coseno normalizzata sui vettori densi — l'ordered-sparse non sostituisce il canale, lo guida.
+
+**Metodi utilizzati**: funzione `align_with_ordered_sparse` con doppio strato. Guardiano O(1) tramite POPCNT sulla firma globale. Banda dinamica W_i con interpolazione lineare continua nel range intermedio (0.3 ≤ Jaccard < 0.7), penalità `1 + (0.3 − j)` sotto 0.3, vincolo `W_i ≤ window_size` di base. Coerenza dimensionale verificata tra sequenze dense e guide sparse (ritorno `Err` se disallineate).
+
+**Risultati attesi**: un allineamento che usa la proiezione posizionale per *guidare* il cammino, non per sostituire la geometria densa. Il guardiano discrimina topologicamente prima di allocare la matrice.
+
+**Risultati ottenuti**:
+- **Scoperta importante durante i test**: la firma bloom a 128 bit è *densa* (~70 bit per token). Due insiemi di token disgiunti condividono comunque ~18-20/128 bit di rumore di fondo. Il primo test falliva perché usava soglia `k=4` (sotto il rumore) con token 3,4 — l'overlap "identico vs disgiunto" era 80/128, sopra la soglia. La firma discrimina bene ma ha un pavimento di rumore: la soglia va posta *sopra* quel pavimento.
+- Correzione: soglia discriminante `SOGLIA_DISCRIMINANTE = 90` (identico ≈ 98/128, disgiunto ≈ 18-20/128). Test aggiornati con token molto distanti (100_000, 4_000_000) per massimizzare la separazione.
+- 5 test nuovi per l'integrazione: ritiro geometrico (Strato 1), nessun ritiro se overlap ok, soglia zero permissiva, disallineamento dimensionale sparse-dense → `Err`, normalizzazione w_min/w_max invertiti.
+- **Tutti i test verdi**: 29 unit (dtw+ordered_sparse) + 10 dtw + 8 integrazione = 47.
+- Il guardiano ora discrimina davvero: separa le traiettorie topologicamente divergenti prima di allocare la matrice di allineamento.
+
+**Documenti**: `semantic-walk/src/dtw.rs` (funzione `align_with_ordered_sparse` + 5 test).
