@@ -74,6 +74,38 @@ La formulazione `κ(s) = ‖γ̃″(s)‖₂` rappresenta l'approssimazione al p
 
 ---
 
+## Terzo giro Qoder — Risoluzione completa
+
+Qoder è tornato un terzo giro e ha mostrato una verità sullo statuto del modulo: la soluzione del paradosso (θ' interna) era la mossa giusta, ma il k che ne derivava era una costante (k = 1) mascherata da derivazione, e con k = 1 + partizione monotona in S_i l'intero modulo si riduce a un gradino su una quantità già ordinata. Tre conseguenze, tutte accolte:
+
+### 3.1 — Vero k dinamico: massa di ampiezza λ (Camillo)
+
+Il conteggio `M_target/M = 1/4` assume ampiezze iniziali uniformi. Poiché gli stati in ingresso al pruner sono già pesati da `S_gate`, le ampiezze **non sono uniformi**. La frazione di target va calcolata sulla **massa di ampiezza accumulata** dai candidati sopra soglia:
+
+```
+λ = ( Σ_{i ∈ target} |a_i|² ) / ( Σ_{all} |a_i|² )
+θ_Grover = arcsin( √λ )
+k = ⌊ (π/2 − θ_Grover) / (2·θ_Grover) ⌋
+```
+
+`k` diventa una funzione continua della concentrazione di probabilità, non un numero fisso. **Caso limite pulito:** con ampiezze uniformi, λ → M_target/M = 1/4 e k → 1 — la versione precedente diventa un caso particolare della nuova, non un'alternativa.
+
+### 3.2 — Benchmark sulle 153 traiettorie: Pruner vs regola lessicografica a 2 righe
+
+Sfida di Qoder accolta senza riserve. Confronto diretto sulle 153 traiettorie:
+- **Baseline O(M):** ordinamento per `(S_i ≥ P75)` decrescente, poi per `S_i` decrescente.
+- **Modulo semantic-quantum:** rotazione `k(λ)` + decadimento `e^(−S_i/τ)`.
+
+Se la rimodulazione continua delle ampiezze non supera la baseline in stabilità geodetica o riduzione dell'errore sul fronte di Pareto, il paper ridefinirà il modulo per quello che è: **una politica di priorità lessicografica a due livelli**. Il test trasforma la sfida da minaccia a strumento: o il modulo batte due righe, o lo diciamo ad alta voce.
+
+### 3.3 — Calibrazione trasparente di c e P75
+
+Senza finzioni teoriche: `c = 1.0` in `τ = c·σ(S_Pareto) + ε` e la scelta del 75° percentile sono **iperparametri empirici**, dichiarati esplicitamente come parametri di calibrazione. Il loro valore ottimale sarà validato ed emesso dall'analisi statistica del dataset delle 153 traiettorie, insieme ai test di Spearman.
+
+---
+
 ## Conclusione
 
-Il paradosso gate-oracolo — il rilievo più profondo della revisione — si è risolto non negandolo ma dandogli una struttura: la soglia interna adattiva θ' trasforma il pruner da filtro ridondante a discriminatore di secondo livello, e `k` da iperparametro a funzione dello stato. Il sistema è ora più derivato e meno arbitrario di prima della revisione.
+Il paradosso gate-oracolo — il rilievo più profondo della revisione — si è risolto non negandolo ma dandogli una struttura: la soglia interna adattiva θ' trasforma il pruner da filtro ridondante a discriminatore di secondo livello. Il terzo giro ha poi mostrato che la soluzione andava spogliata di ogni finta derivazione: k è ora funzione della massa di ampiezza (λ), non del conteggio; c e P75 sono dichiarati iperparametri di calibrazione, non costanti derivate; e il benchmark a due righe decide se il modulo è una struttura vera o due righe con sopra un arredamento.
+
+La lezione della notte, custodita: **la revisione esterna non ha protetto il codice — l'ha reso più vero.** E un sistema che esce da una notte così è più *onesto* di come ci era entrato. Un numero fisso dichiarato come tale è più forte di un numero fisso mascherato da derivazione.
