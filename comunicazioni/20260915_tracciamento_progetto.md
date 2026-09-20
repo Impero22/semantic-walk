@@ -246,3 +246,30 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Errore mio durante lo sviluppo**: il primo calcolo atteso del test usava azioni (0.5, 0.7) sopra la soglia di decoerenza (0.5) → il secondo ramo veniva scartato, Ψ atteso sbagliato. Corretto con azioni sotto soglia (0.3, 0.4), Ψ = 1.679.
 - **Risultati ottenuti**: 35 test verdi (34 + 1 nuovo), 0 falliti. Fix committato.
 - **Lezione**: la verifica di Clerk ha trovato un problema che la review esterna non aveva visto. Federico aveva ragione a insistere: la verifica esterna è un'abitudine da coltivare, non un optional.
+
+## 20/09/26 — Domande da revisore di Federico: generalità dell'embedder e ordered-sparse
+
+**Contesto**: domenica pomeriggio, conversazione con Federico sulla validazione del metodo. Due domande da revisore vero, entrambe accolte come punti aperti nel piano di validazione.
+
+### Punto 1 — Generalità rispetto all'embedder denso
+
+**Domanda**: "verrebbe la pena di avere anche una sorgente di dati diversa da BGE-M3 al fine di stabilire quanto il vostro metodo sia generale e quanto invece dipendente da quel particolare embedder."
+
+**Risposta (distinzione a due livelli)**:
+- **Architettura** (combinatore trivettoriale, gate permissivo, graph, DTW D-dim): agnostica rispetto all'embedder. Il DTW lavora su vettori D-dimensionali qualunque; il gate opera sui ranghi (percentile), invarianti a trasformazioni monotone; il combinatore fonde tre sonde qualsiasi.
+- **Calibrazione** (pesi del combinatore, soglia P75, c di τ, λ della massa di ampiezza): dipendente dall'embedder finché non verificata su una seconda sorgente. Se cambia l'embedder, i valori ottimali possono spostarsi — il metodo non crolla, ma va ricalibrato.
+
+**Azione proposta**: test di robustezza con un secondo embedder denso (es. Snowflake Arctic, già usato per la memoria in ArangoDB). Se il metodo regge con due embedder diversi, la tesi si rafforza: non descriviamo il comportamento di un modello, ma una proprietà del cammino semantico. Candidata come sezione "generalità" del paper.
+
+### Punto 2 — Ordered-sparse come quarta sorgente
+
+**Domanda**: "dal momento che ragionate per traiettorie e non per bag semantici, perché nella sorgente sparse utilizzate lo sparse classico anziché il nostro ordered-sparse che a sua volta genera coppie chiave-peso ordinate per traiettoria?"
+
+**Analisi (distinzione a due livelli)**:
+- **Stato attuale**: nel combinatore, la sonda sparse classica è una similarità scalare valutata punto-per-punto, saturata con 1−e^(−λ·s). L'ordine lungo la traiettoria NON vive nel combinatore: ogni punto è valutato isolatamente. L'ordine emerge solo a valle, nel DTW che confronta le *sequenze* di punti proiettati.
+- **Asimmetria riconosciuta**: le sonde dense e sparse classiche sono "cieche all'ordine" per costruzione; solo il ColBERT porta struttura interna (late interaction token-by-token). Se l'ordine è la tesi centrale del metodo, l'informazione ordinata vive solo nel DTW e non nelle sonde.
+- **Opportunità**: l'ordered-sparse (coppie chiave-peso ordinate per traiettoria) non è un sostituto della sparse per-punto — è una sorgente di tipo diverso che codifica l'ordine *dentro il vettore*. Potrebbe entrare come quarta sorgente (o variante della sparse), portando l'ordine nel punto; il DTW confronterebbe sequenze già arricchite di quella dimensione.
+
+**Stato**: non esplorato — il combinatore è stato progettato per fondere similarità scalari, e l'ordered-sparse non è uno scalare ma una sequenza. Punto aperto da esplorare con Camillo. Candidata come rafforzamento della tesi "l'ordine come proprietà del cammino, non solo come struttura del confronto".
+
+**Prossimo passo**: portare entrambi i punti a Camillo; decidere se entrano nel piano di validazione e/o nel paper.
