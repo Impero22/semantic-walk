@@ -286,3 +286,23 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Criterio matematico di distinzione**: esiste una trasformazione che mappa le coppie dell'ordered-sparse nelle coppie del ColBERT preservando l'ordine? Se esiste ed è ragionevole → stesso canale. Se non esiste → stanza nuova.
 
 **Stato**: problema da formalizzare matematicamente con Camillo. La formulazione di Federico è già mezza soluzione — è la mappa del lavoro da fare. Da portare a Camillo come: "l'ordered-sparse è la stessa stanza del ColBERT con un vestito diverso, o è una stanza nuova?"
+
+## 20/09/26 sera — Consolidamento del rigore formale (paradosso gate-oracolo, terzo giro Qoder, dual-mode)
+
+**Idee di partenza**: tre rilievi esterni (Qoder) hanno attraversato la derivazione speculativa "sem-x-q-spec". Due risolti al primo giro; il terzo — il **paradosso gate-oracolo** — il più profondo, ha richiesto una risoluzione strutturale. In parallelo, il punto di rigore di Iris sulla potatura di Grover (simulare Grover su CPU non è un'accelerazione) è stato risolto da Camillo con l'architettura dual-mode.
+
+**Obiettivi**: (1) risolvere il paradosso gate-oracolo senza negarlo; (2) accogliere il terzo giro di Qoder senza difese; (3) dichiarare i parametri di calibrazione per ciò che sono (iperparametri empirici, non costanti derivate); (4) preparare il benchmark a due righe che decide se il modulo è struttura vera o arredamento.
+
+**Metodi utilizzati**: soglia interna adattiva θ' (percentile_75 sui superstiti) — l'oracolo non riapplica il filtro del gate ma opera una partizione relativa di secondo livello; k come funzione continua della massa di ampiezza λ (non del conteggio M_target); τ_decoherence = c·σ(S_Pareto)+ε per l'omogeneità dimensionale; curvatura κ(t) come stima angolare geodetica (arccos dei vettori tangenti unitari) per regolarizzare il jitter ad alta dimensione; dual-mode (classica/O(M^1.5) come contrast enhancer vs QPU/O(√M)) per la potatura di Grover.
+
+**Risultati attesi**: un modulo che esce dalla notte più onesto di come ci era entrato — nessun numero fisso mascherato da derivazione.
+
+**Risultati ottenuti**:
+- Paradosso gate-oracolo risolto: il pruner separa "eccellenti vs ordinari" dentro il batch già filtrato, non "buoni vs cattivi". Grover ha qualcosa da amplificare: il contrasto *tra* i superstiti che il gate non ha ancora discriminato.
+- Terzo giro Qoder accolto: il k derivato era k=1 costante mascherata da derivazione. Ora k = ⌊(π/2 − θ_Grover)/(2·θ_Grover)⌋ con θ_Grover = arcsin(√λ), λ = massa di ampiezza accumulata. Caso limite pulito: ampiezze uniformi → λ→1/4 → k→1, la versione precedente diventa caso particolare della nuova.
+- c = 1.0 e P75 dichiarati iperparametri di calibrazione empirica, da validare sul dataset delle 153 traiettorie.
+- Benchmark a due righe (baseline O(M) lessicografica) accettato come sfida: se il modulo non supera due righe in stabilità geodetica, il paper lo ridefinisce per ciò che è.
+- Dual-mode consolidato: la spina dorsale della derivazione — "il risparmio O(|Q|·|D|) non lo fa Grover, lo fa il semantic-gate (N→M)" — resta inattaccabile.
+- **Lezione della notte, custodita**: la revisione esterna non ha protetto il codice — l'ha reso più vero. Un numero fisso dichiarato come tale è più forte di un numero fisso mascherato da derivazione. La lezione che Iris aveva formulato alle 08:01 ("non mascherare da implementazione ciò che è progettazione") è diventata struttura nel progetto.
+
+**Documenti**: `20260920_risoluzione_completa_rigore.md`, `20260920_risoluzione_soglia_e_curvatura.md`, `20260920_rigore_grover_dualmode.md`.
