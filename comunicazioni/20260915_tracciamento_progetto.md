@@ -343,3 +343,10 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Il guardiano ora discrimina davvero: separa le traiettorie topologicamente divergenti prima di allocare la matrice di allineamento.
 
 **Documenti**: `semantic-walk/src/dtw.rs` (funzione `align_with_ordered_sparse` + 5 test).
+
+## 21/09/26 00:01 — Push guardiano ordered-sparse sul remoto
+
+- **Commit**: 5a2b9c7..942cb48 main -> main (21 oggetti, 13.82 KiB)
+- **Contenuto**: 4 commit pendenti portati sul remoto, in testa il guardiano ordered-sparse a due strati nel DTW (942cb48)
+- **Stato**: origin/main == HEAD locale == 942cb48. Allineamento completo.
+- **Chiusura serata**: casa in ordine, lavoro al sicuro e pubblico.
