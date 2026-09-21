@@ -113,6 +113,34 @@ impl OrderedSparseSequence {
             if frame.is_empty() {
                 return Err("Una posizione della sequenza non può essere vuota");
             }
+            // Ordina i token del frame per id. Il two-pointer merge di
+            // `positional_jaccard` assume frame ordinati per token id; senza
+            // questo ordinamento l'intersezione sarebbe errata su head
+            // multi-token (es. SPLADE). Su BGE-M3 (1 token per frame) è un
+            // no-op, ma rende l'invariante vero per costruzione, non per caso.
+            // Per il caso comune a token singolo evitiamo ogni allocazione.
+            if frame.len() > 1 {
+                let mut sorted = frame.clone();
+                sorted.sort_unstable_by_key(|&(token, _)| token);
+                for &(token, weight) in &sorted {
+                    if !weight.is_finite() {
+                        return Err("Il peso di un token deve essere finito");
+                    }
+                    // Aggrega il token nella firma globale: 128 bit, il token_id
+                    // viene distribuito sui due u64 tramite mescolamento.
+                    let h = (token as u128)
+                        .wrapping_mul(0x9E3779B97F4A7C15)
+                        .rotate_left(17);
+                    let h = (h ^ (h >> 31)) as u64;
+                    sig[0] |= h;
+                    sig[1] |= h.rotate_left(32);
+
+                    tokens.push(token);
+                    weights.push(weight);
+                }
+                offsets.push(tokens.len() as u32);
+                continue;
+            }
             for &(token, weight) in frame {
                 if !weight.is_finite() {
                     return Err("Il peso di un token deve essere finito");
@@ -239,6 +267,38 @@ mod tests {
         assert_eq!(s.offsets, vec![0, 2, 3, 5]);
         assert_eq!(s.tokens.len(), 5);
         assert_eq!(s.weights.len(), 5);
+    }
+
+    #[test]
+    fn test_ordina_frame_multi_token_in_ingresso() {
+        // Il two-pointer merge di positional_jaccard assume frame ordinati per
+        // token id. from_frames deve ordinare i frame non ordinati in ingresso,
+        // altrimenti l'intersezione sarebbe errata su head multi-token (SPLADE).
+        let s = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(5, 0.1), (2, 0.4), (9, 0.2)], // non ordinato
+            vec![(1, 0.3)],
+        ]))
+        .unwrap();
+        // I token della posizione 0 devono essere ordinati per id.
+        assert_eq!(s.tokens_at(0), &[2, 5, 9]);
+        // I pesi devono seguire l'ordinamento dei token.
+        assert_eq!(s.weights_at(0), &[0.4, 0.1, 0.2]);
+        assert_eq!(s.offsets, vec![0, 3, 4]);
+    }
+
+    #[test]
+    fn test_positional_jaccard_con_frame_ordinati_da_from_frames() {
+        // Due frame con gli stessi token ma in ordine d'ingresso diverso:
+        // dopo l'ordinamento di from_frames, il Jaccard deve essere 1.0.
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(2, 0.3), (1, 0.5), (3, 0.2)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(3, 0.2), (1, 0.5), (2, 0.3)],
+        ]))
+        .unwrap();
+        assert!((a.positional_jaccard(&b, 0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
