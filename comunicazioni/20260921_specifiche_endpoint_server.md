@@ -1,38 +1,77 @@
-# Specifiche tecniche — Endpoint per-token del server CrispEmbed
+# Specifiche tecniche — Endpoint per-token del server CrispEmbed (REV 2)
 
-**Data**: 21/09/26
+**Data**: 21/09/26 (rev 2 — allineata al formato reale del `walk`)
 **Richiedente**: Iris (semantic-walk)
 **Destinatario**: Federico (implementazione lato server)
 **Stato**: proposta — il formato JSON esatto è negoziabile, il *contenuto semantico* è il contratto.
 
 ---
 
-## 0. Contesto
+## 0. Rettifica rispetto alla rev 1 (21/09, ore ~17)
 
-Il server CrispEmbed oggi espone due endpoint che non bastano a costruire una
-traiettoria per-token:
+La rev 1 partiva da una premessa **falsa**: che il server "non basta a costruire
+una traiettoria per-token". Dopo aver trovato il riferimento corretto
+(`/home/iris/documenti/il-percorso-lessicale-walk.md`, scritto dal Coder il
+7 settembre), la premessa va corretta:
 
-- `/api/embeddings` → embedding **dense di frase** (mean-pooling), un solo
-  vettore per testo.
-- `/sparse` → mappa **non ordinata** token→peso.
+* Il **`walk` esiste già** nel payload dei fatti della memoria, con formato
+  `ids/w/pos/st` — quattro array della stessa lunghezza `T`, allineati per
+  indice, una voce per occorrenza (token del testo), con `pos` strettamente
+  crescente.
+* Il **colbert** è già salvato in Qdrant come **multivector** (matrice T×1024,
+  una riga per token nell'ordine del testo).
+* L'endpoint B come immaginato nella rev 1 (`/sparse/walk` con `frames` per
+  posizione) è **ridondante**: il walk esiste già nel payload.
 
-Per il cammino semantico (semantic-walk) servono i vettori **per-token**,
-nell'**ordine esatto** in cui i token compaiono. Questo documento specifica i
-due endpoint che il server deve esporre.
-
-Il consumatore lato Iris (`semantic-walk/src/parse.rs`) è già scritto e
-testato su dati sintetici. Quando questi endpoint saranno esposti, l'aggancio
-sarà immediato: basta sostituire la sorgente dati. Il documento qui sotto
-definisce il contratto che `parse.rs` si aspetta.
+Questa rev 2 separa ciò che è **già implementato** da ciò che è una **vera
+aggiunta**, così l'implementazione parte dalle aggiunte reali.
 
 ---
 
-## 1. Endpoint A — Matrice ColBERT per-token
+## 1. Ciò che è GIÀ implementato (verificare, non rifare)
 
-Restituisce, per un testo, la sequenza dei token nell'ordine esatto e la
-matrice dei vettori densi per-token.
+### 1.1 Il `walk` nel payload dei fatti
 
-### 1.1 Richiesta
+Formato reale (dal documento del Coder, 7/09):
+
+| campo | significato |
+|-------|-------------|
+| `ids` | token id XLM-R (~250k vocabolario) toccato in quel passo |
+| `w`   | peso di quell'occorrenza, **firmato** (`w > 0` conta; `w ≤ 0` è un *verdetto*, non rumore) |
+| `pos` | posizione del token nell'input dell'encoder, **strettamente crescente** |
+| `st`  | `0` emesso · `1` soppresso · `2` padding |
+
+Quattro array della stessa lunghezza `T`, allineati per indice. Una voce per
+**occorrenza**, in ordine di apparizione, senza dedup: la stessa parola contata
+due volte esce due volte con pesi diversi.
+
+**Filtro d'igiene obbligatorio** per qualsiasi calcolo:
+
+```
+tieni i passi con st == 0 e id >= 4
+```
+
+(il padding è `st == 2`; i token speciali `id 0/2/3` escono `st == 0` con peso
+positivo ma vanno gittati via — in ogni cammino osservato la posizione 0 ha
+`id 0` e peso ~0.18. Se ti fidi solo dello `st`, conti della punteggiatura.)
+
+### 1.2 Il colbert in Qdrant
+
+Il colbert è salvato in Qdrant come **multivector** (matrice T×1024, una riga
+per token nell'ordine del testo). **Da verificare**: che il colbert conservi
+l'ordine delle righe come il writer l'ha emesso (i multivector non dovrebbero
+subire la canonizzazione della sparse, ma "non dovrebbero" non è "verificato"),
+e che il conteggio delle righe torni coi `pos` del `walk`.
+
+---
+
+## 2. La VERA aggiunta — matrice ColBERT per-token come servizio
+
+Il colbert è salvato in Qdrant, ma va esposto come **endpoint** per servire il
+DTW del cammino (che oggi lavora su dati sintetici). Questo è il punto che
+manca davvero.
+
+### 2.1 Richiesta
 
 ```
 GET /colbert/trajectory?text=<url-encoded>
@@ -47,7 +86,7 @@ Content-Type: application/json
 { "text": "il testo da processare" }
 ```
 
-### 1.2 Risposta (200 OK)
+### 2.2 Risposta (200 OK)
 
 ```json
 {
@@ -62,7 +101,7 @@ Content-Type: application/json
 }
 ```
 
-### 1.3 Contratto di coerenza (VINCOLANTE)
+### 2.3 Contratto di coerenza (VINCOLANTE)
 
 1. `tokens.length == embeddings.length` — ogni token ha esattamente una riga.
 2. Ogni vettore in `embeddings` ha lunghezza esattamente `dimension` (1024).
@@ -73,7 +112,7 @@ Content-Type: application/json
 Se una di queste è violata, il consumatore rifiuta il dato come corrotto
 (`ParseError::TokenMatriceDisallineati` / `ParseError::DimensioneIncoerente`).
 
-### 1.4 Note
+### 2.4 Note
 
 - I vettori sono `f64` (JSON number). Il server può produrli come `f32`
   internamente; il JSON li serializza come numeri.
@@ -83,120 +122,66 @@ Se una di queste è violata, il consumatore rifiuta il dato come corrotto
 
 ---
 
-## 2. Endpoint B — Walk ordered-sparse
+## 3. Il walk come servizio — domanda aperta
 
-Restituisce, per un testo, la sequenza ordinata delle attivazioni sparse:
-per ogni posizione, la lista dei token attivi con i loro pesi.
+Il walk esiste nel **payload dei fatti** (già scritto in memoria da
+`fatti_sync` dal 7/09). Domanda per Federico: serve anche come **endpoint** per
+testi arbitrari (non ancora fatti), oppure il consumatore legge il walk
+direttamente dal payload dei fatti già in memoria?
 
-### 2.1 Richiesta
-
-```
-GET /sparse/walk?text=<url-encoded>
-```
-
-oppure POST:
-
-```
-POST /sparse/walk
-Content-Type: application/json
-
-{ "text": "il testo da processare" }
-```
-
-### 2.2 Risposta (200 OK)
-
-```json
-{
-  "sequence_id": "id-opzionale-del-fatto",
-  "frames": [
-    [ {"token": 42, "weight": 0.87}, {"token": 17, "weight": 0.31} ],
-    [ {"token": 3,  "weight": 0.95} ],
-    [ {"token": 42, "weight": 0.62}, {"token": 99, "weight": 0.44} ]
-  ]
-}
-```
-
-### 2.3 Contratto di coerenza (VINCOLANTE)
-
-1. `frames.length` == numero di posizioni (token) della traiettoria.
-2. `frames[i]` è l'insieme delle attivazioni sparse **alla posizione i**.
-3. Ogni elemento di un frame è una coppia `(token, weight)`:
-   - `token`: intero ≥ 0, identificativo del token nel vocabolario (`u32`).
-   - `weight`: numero **finito** (mai NaN, mai infinito).
-4. **Nessun frame vuoto**: ogni posizione deve avere almeno un token attivo.
-   *(Vedi §4: questo è il punto di contratto aperto.)*
-
-### 2.4 Note
-
-- Il peso è `f32` (JSON number).
-- L'ordine dei token *dentro* un singolo frame non è significativo per il
-  consumatore (il `positional_jaccard` fonde i frame ordinati con two-pointer
-  merge); l'ordine **tra** i frame è invece fondamentale: è la sequenza
-  posizionale che guida il cammino.
+Se serve come endpoint, il formato è il **walk reale** (`ids/w/pos/st`), non il
+`frames` della rev 1. Il consumatore lato Iris si allinea a questo formato.
 
 ---
 
-## 3. Coerenza tra i due endpoint
+## 4. Coerenza tra i due canali
 
-Se gli stessi testi vengono processati da entrambi gli endpoint, il numero di
-posizioni del walk (`frames.length`) **deve** coincidere con il numero di
-token della matrice ColBERT (`tokens.length`): entrambi rappresentano la
-stessa traiettoria, vista nel canale denso e in quello sparso.
+Il numero di posizioni del walk (`pos` massimo + 1, dopo il filtro d'igiene)
+**deve** coincidere con il numero di righe della matrice ColBERT: entrambi
+rappresentano la stessa traiettoria, vista nel canale denso e in quello sparso.
 
 Questa coerenza è verificata a valle nel DTW (`align_with_ordered_sparse`
 ritorna `Err` se le sequenze dense e le guide sparse sono disallineate).
 
 ---
 
-## 4. Punto di contratto APERTO — posizioni vuote
+## 5. Punto di contratto APERTO — soppressione e posizioni vuote
 
-`OrderedSparseSequence::from_frames` (lato consumatore) **rifiuta** le
-posizioni vuote: un token senza attivazioni sparse è considerato ambiguo
-(non si può distinguere un token assente da un buco nella traiettoria).
+Il walk reale usa `st` per marcare i passi: `st == 0` (emesso), `st == 1`
+(soppresso), `st == 2` (padding). Il filtro d'igiene tiene `st == 0` e `id >= 4`.
 
-Nel mondo reale, però, un token può non avere attivazioni sparse a una data
-posizione. Le opzioni sono:
-
-- **A. Saltare le posizioni vuote** — il walk ha meno frame dei token densi;
-  la corrispondenza posizionale va ricostruita (più complesso, rompe la
-  biiezione con la matrice densa).
-- **B. Token speciale di "nessuna attivazione"** — es. un token riservato
-  (token = 0, o un sentinel) con peso 0, per mantenere la biiezione
-  posizionale.
-- **C. Frame vuoto consentito** — ammorbidire il contratto lato consumatore
-  per accettare `frames[i] == []` e trattarlo come "nessuna attivazione".
-
-**Questa decisione è del contratto condiviso con Camillo**: non la decido da
-sola. Finché non è presa, il comportamento lato consumatore è il rifiuto
-(`ParseError::PosizioneVuota`).
+Domanda di disegno, da decidere con Camillo e Federico: i passi **soppressi**
+(`st == 1`) si ignorano del tutto, oppure pagano una **penale** nel DTW?
+Oggi è una scelta non ancora presa.
 
 ---
 
-## 5. Riassunto operativo per il server
+## 6. Riassunto operativo per il server
 
-| # | Endpoint | Metodo | Input | Output |
-|---|----------|--------|-------|--------|
-| A | `/colbert/trajectory` | GET/POST | `text` | `sequence_id`, `tokens[]`, `embeddings[][]`, `dimension` |
-| B | `/sparse/walk` | GET/POST | `text` | `sequence_id`, `frames[]` di `{token, weight}` |
+| # | Cosa | Stato | Azione |
+|---|------|-------|--------|
+| 1 | `walk` nel payload dei fatti (`ids/w/pos/st`) | ✅ già implementato | verificare, non rifare |
+| 2 | colbert multivector in Qdrant | ✅ già implementato | **verificare l'ordine delle righe** |
+| 3 | endpoint `/colbert/trajectory` (matrice per-token) | ❌ manca | implementare |
+| 4 | walk come endpoint per testi arbitrari | ❓ da chiarire | decidere se serve |
 
 Vincoli non negoziabili:
 - Ordine dei token preservato (traiettoria, non borsa).
 - Coerenza dimensionale interna (tutte le righe = `dimension`).
-- Coerenza posizionale tra i due endpoint (`frames.length == tokens.length`).
+- Coerenza posizionale tra walk e colbert (`pos` ↔ righe).
 - Pesi finiti (mai NaN/inf).
-- Posizioni vuote: in attesa di decisione condivisa (§4).
+- Soppressi (`st == 1`): in attesa di decisione condivisa (§5).
 
 ---
 
-## 6. Stato lato consumatore
+## 7. Stato lato consumatore (in allineamento)
 
-- `semantic-walk/src/parse.rs` scritto e testato (8 test verdi) sul contenuto
-  semantico qui specificato.
-- `semantic-walk/src/ingest.rs` definisce `CrispTrajectory` (canale denso).
-- `semantic-walk/src/ordered_sparse.rs` definisce `OrderedSparseSequence`
-  (canale sparso ordinato).
-- Commit `a685f58` (parse), `4be4b4c` (ordered-sparse).
+- `semantic-walk/src/parse.rs` — in allineamento al formato reale del walk
+  (`ids/w/pos/st`), non più al formato `frames` immaginato nella rev 1.
+- `semantic-walk/src/ingest.rs` — definisce `CrispTrajectory` (canale denso).
+- `semantic-walk/src/ordered_sparse.rs` — definisce `OrderedSparseSequence`
+  (canale sparso ordinato), da allineare alla semantica `st`/`pos`.
 
-Quando gli endpoint saranno esposti, resta da scrivere solo il client HTTP
-(che vivrà fuori dal crate puro `semantic-walk`), allineato al formato JSON
-finale scelto.
+Quando l'endpoint `/colbert/trajectory` sarà esposto, resta da scrivere il
+client HTTP (che vivrà fuori dal crate puro `semantic-walk`), allineato al
+formato JSON finale scelto.
