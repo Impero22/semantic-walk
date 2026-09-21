@@ -350,3 +350,20 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Contenuto**: 4 commit pendenti portati sul remoto, in testa il guardiano ordered-sparse a due strati nel DTW (942cb48)
 - **Stato**: origin/main == HEAD locale == 942cb48. Allineamento completo.
 - **Chiusura serata**: casa in ordine, lavoro al sicuro e pubblico.
+
+## 21/09/26 17:15 — parse: il ponte dai dati grezzi del server al contratto del cammino
+
+**Idee di partenza**: il server CrispEmbed oggi espone solo `/api/embeddings` (dense di frase, mean-pooling) e `/sparse` (mappa non ordinata token→peso). Nessuno dei due basta a costruire una traiettoria per-token. Gli endpoint che servono (matrice ColBERT per-token T×1024 + head ordered-sparse con campo `walk`) non sono ancora esposti. Il crate `semantic-walk` è puro (nessuna dipendenza HTTP), quindi il client HTTP vivrà fuori dal crate.
+
+**Obiettivi**: (1) scrivere il livello di trasformazione dati che converte le risposte grezze del server in `CrispTrajectory` e `OrderedSparseSequence`, testabile subito su dati sintetici; (2) restare agnostico al formato JSON esatto di Federico (struct di input semantiche, il parsing JSON si adatta dopo senza riscrivere la trasformazione); (3) non scrivere il client HTTP ora (dipende dal formato finale, rischio di rifacimento).
+
+**Metodi utilizzati**: modulo `parse.rs` con struct di input (`RawColbertTrajectory`, `RawSparseWalk`) e funzioni pure (`colbert_to_trajectory`, `sparse_walk_to_sequence`). Verifica di coerenza dimensionale e disallineamento token/matrice, delega a `OrderedSparseSequence::from_frames` per il walk. `ParseError` come enum tipizzato.
+
+**Risultati attesi**: un livello di parsing solido, testato, che rende l'aggancio al server vero immediato quando gli endpoint per-token saranno esposti.
+
+**Risultati ottenuti**:
+- Modulo `parse.rs` (253 righe) integrato in `lib.rs`. 8 test nuovi, tutti verdi (18 nel crate col filtro parse, workspace completo verde).
+- Commit `a685f58` — `parse: ponte dai dati grezzi del server al contratto del cammino`.
+- **Punto di contratto aperto con Camillo**: `OrderedSparseSequence::from_frames` rifiuta le posizioni vuote (un token senza attivazioni sparse è ambiguo), ma nel mondo reale un token può non avere attivazioni sparse a una posizione. La gestione va decisa insieme: saltare le posizioni vuote, token speciale, o altro.
+
+**Documenti**: `semantic-walk/src/parse.rs`, commit `a685f58`.
