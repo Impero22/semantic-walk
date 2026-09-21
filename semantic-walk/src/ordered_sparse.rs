@@ -63,8 +63,18 @@ pub struct OrderedSparseSequence {
     /// **Layer 1** — firma globale aggregata per il pruning O(1).
     ///
     /// Due `u64` (128 bit) che riassumono l'intera sequenza. L'intersezione
-    /// tra due firme misura la sovrapposizione globale dei token attivi
+    /// tra due firme misura la sovrapposizione globale dei token **emessi**
     /// lungo tutta la traiettoria, indipendentemente dall'ordine.
+    ///
+    /// ## Contratto dei soppressi
+    ///
+    /// La firma riassume i soli token emessi (`weight > 0`). Un token
+    /// soppresso (`weight <= 0`) non è un token "presente" nel cammino per
+    /// il guardiano del pruning: se contribuisse alla firma, due traiettorie
+    /// potrebbero risultare compatibili perché condividono token che in
+    /// realtà sono stati soppressi in entrambe — un falso positivo nel
+    /// confronto O(1). I soppressi restano nel buffer posizionale (il DTW li
+    /// vede con peso firmato e può penalizzarli), ma non gonfiano la firma.
     pub global_signature: [u64; 2],
 
     /// **Layer 2a** — indici di inizio dei frame posizionali nel buffer.
@@ -126,14 +136,17 @@ impl OrderedSparseSequence {
                     if !weight.is_finite() {
                         return Err("Il peso di un token deve essere finito");
                     }
-                    // Aggrega il token nella firma globale: 128 bit, il token_id
-                    // viene distribuito sui due u64 tramite mescolamento.
-                    let h = (token as u128)
-                        .wrapping_mul(0x9E3779B97F4A7C15)
-                        .rotate_left(17);
-                    let h = (h ^ (h >> 31)) as u64;
-                    sig[0] |= h;
-                    sig[1] |= h.rotate_left(32);
+                    // Aggrega il token nella firma globale SOLO se è emesso
+                    // (weight > 0). Un token soppresso (weight <= 0) non è
+                    // "presente" nel cammino per il guardiano del pruning.
+                    if weight > 0.0 {
+                        let h = (token as u128)
+                            .wrapping_mul(0x9E3779B97F4A7C15)
+                            .rotate_left(17);
+                        let h = (h ^ (h >> 31)) as u64;
+                        sig[0] |= h;
+                        sig[1] |= h.rotate_left(32);
+                    }
 
                     tokens.push(token);
                     weights.push(weight);
@@ -145,14 +158,17 @@ impl OrderedSparseSequence {
                 if !weight.is_finite() {
                     return Err("Il peso di un token deve essere finito");
                 }
-                // Aggrega il token nella firma globale: 128 bit, il token_id
-                // viene distribuito sui due u64 tramite mescolamento.
-                let h = (token as u128)
-                    .wrapping_mul(0x9E3779B97F4A7C15)
-                    .rotate_left(17);
-                let h = (h ^ (h >> 31)) as u64;
-                sig[0] |= h;
-                sig[1] |= h.rotate_left(32);
+                // Aggrega il token nella firma globale SOLO se è emesso
+                // (weight > 0). I soppressi restano nel buffer ma non
+                // contribuiscono alla firma del pruning.
+                if weight > 0.0 {
+                    let h = (token as u128)
+                        .wrapping_mul(0x9E3779B97F4A7C15)
+                        .rotate_left(17);
+                    let h = (h ^ (h >> 31)) as u64;
+                    sig[0] |= h;
+                    sig[1] |= h.rotate_left(32);
+                }
 
                 tokens.push(token);
                 weights.push(weight);
@@ -398,5 +414,66 @@ mod tests {
         .unwrap();
         // Intersezione = {1}, unione = {1,2,3} => J = 1/3
         assert!((a.positional_jaccard(&b, 0) - 1.0 / 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_soppressi_non_contribuiscono_alla_firma() {
+        // Il soppresso condiviso (w <= 0) NON deve rendere due sequenze più
+        // compatibili per il guardiano del pruning. Verifichiamo la proprietà
+        // relativa: l'overlap di firma di (a,b) che condividono un soppresso
+        // deve essere IDENTICO a quello di (a,b) senza il soppresso condiviso.
+        //
+        // Non possiamo pretendere overlap = 0 assoluto: due firme di token
+        // emessi diversi (2 vs 3) possono condividere bit per collisione di
+        // hash. Ciò che deve valere è che il soppresso non AGGIUNGA nulla.
+        let a_soppr = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, 0.3)],
+        ]))
+        .unwrap();
+        let b_soppr = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (3, 0.7)],
+        ]))
+        .unwrap();
+        let a_senza = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(2, 0.3)],
+        ]))
+        .unwrap();
+        let b_senza = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(3, 0.7)],
+        ]))
+        .unwrap();
+
+        // La presenza del soppresso condiviso (1) non deve cambiare l'overlap:
+        // il guardiano vede esattamente gli stessi token emessi.
+        assert_eq!(
+            a_soppr.global_overlap(&b_soppr),
+            a_senza.global_overlap(&b_senza),
+            "il soppresso condiviso non deve contribuire alla firma del pruning"
+        );
+
+        // Il soppresso (1) RESTA nel buffer posizionale, con peso firmato:
+        // il DTW lo vede con peso firmato e può penalizzarlo.
+        assert_eq!(a_soppr.tokens_at(0), &[1, 2]);
+        assert_eq!(a_soppr.weights_at(0), &[-0.5, 0.3]);
+    }
+
+    #[test]
+    fn test_soppresso_identico_emesso_non_collide() {
+        // Un token soppresso in a (w<=0) e lo stesso token emesso in b (w>0):
+        // il soppresso non deve comparire nella firma di a, quindi l'overlap
+        // deve essere 0 (nessun token emesso comune).
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(7, -0.2)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(7, 0.9)],
+        ]))
+        .unwrap();
+
+        assert_eq!(a.global_overlap(&b), 0);
+        // La firma di a (tutto soppresso) deve essere vuota: 0 bit.
+        let sig_a = a.global_signature[0].count_ones() + a.global_signature[1].count_ones();
+        assert_eq!(sig_a, 0);
     }
 }

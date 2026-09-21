@@ -1,9 +1,15 @@
 # Specifiche tecniche — Endpoint per-token del server CrispEmbed (REV 2)
 
-**Data**: 21/09/26 (rev 2 — allineata al formato reale del `walk`)
+**Data**: 21/09/26 (rev 2.1 — allineata alla conferma del Coder)
 **Richiedente**: Iris (semantic-walk)
 **Destinatario**: Federico (implementazione lato server)
 **Stato**: proposta — il formato JSON esatto è negoziabile, il *contenuto semantico* è il contratto.
+
+> **Rev 2.1 (21/09, ~19:20)** — aggiornamento dopo la conferma del Coder:
+> il contratto autoritativo (forme esatte, esempi verificati live su BGE-M3,
+> recap degli endpoint) è in **`docs/PER_TOKEN_ENDPOINTS.md`** lato server.
+> Questa rev 2.1 allinea la parte consumatore: il fix dei soppressi in
+> `from_frames` è implementato e verde, il punto aperto §5 è deciso.
 
 ---
 
@@ -147,12 +153,26 @@ ritorna `Err` se le sequenze dense e le guide sparse sono disallineate).
 
 ## 5. Punto di contratto APERTO — soppressione e posizioni vuote
 
+> **DECISO (rev 2.1)** — il Coder conferma che il server emette `frames[]` =
+> tutte le posizioni non-padding (soppressi inclusi, peso firmato) per il DTW
+> e la biiezione, con `status[]` parallelo (0 emesso · 1 soppresso · 2 padding).
+> Il filtro è una scelta di lettura lato consumatore: **il DTW vede i soppressi
+> con peso firmato e può penalizzarli** (restano nel buffer posizionale),
+> mentre **la firma del pruning O(1) li esclude** (non sono token "presenti").
+> Questa separazione è ora vera per costruzione lato consumatore: il fix in
+> `from_frames` aggrega nella `global_signature` solo i token emessi
+> (`weight > 0.0`), e due test verificano la proprietà relativa (il soppresso
+> condiviso non AGGIUNGE nulla all'overlap di firma).
+
 Il walk reale usa `st` per marcare i passi: `st == 0` (emesso), `st == 1`
 (soppresso), `st == 2` (padding). Il filtro d'igiene tiene `st == 0` e `id >= 4`.
 
-Domanda di disegno, da decidere con Camillo e Federico: i passi **soppressi**
-(`st == 1`) si ignorano del tutto, oppure pagano una **penale** nel DTW?
-Oggi è una scelta non ancora presa.
+**Decisione condivisa (Coder + Iris):** i passi soppressi (`st == 1`) non si
+ignorano del tutto — restano nel buffer posizionale con peso firmato (il DTW li
+vede e può penalizzarli), ma non contribuiscono alla firma del pruning O(1).
+Nota onesta del Coder per il futuro: lo `status` è per-frame; su BGE-M3
+(1 token/frame) è esatto per token. Se si passa a una head multi-token (SPLADE),
+andrà emesso lo status per-token dentro ogni frame.
 
 ---
 
@@ -162,26 +182,32 @@ Oggi è una scelta non ancora presa.
 |---|------|-------|--------|
 | 1 | `walk` nel payload dei fatti (`ids/w/pos/st`) | ✅ già implementato | verificare, non rifare |
 | 2 | colbert multivector in Qdrant | ✅ già implementato | **verificare l'ordine delle righe** |
-| 3 | endpoint `/colbert/trajectory` (matrice per-token) | ❌ manca | implementare |
-| 4 | walk come endpoint per testi arbitrari | ❓ da chiarire | decidere se serve |
+| 3 | endpoint `/colbert/trajectory` (matrice per-token) | ✅ implementato dal Coder | contratto in `docs/PER_TOKEN_ENDPOINTS.md` |
+| 4 | walk come endpoint per testi arbitrari | ✅ implementato (`/ordered-sparse?format=frames`) | contratto in `docs/PER_TOKEN_ENDPOINTS.md` |
+| 5 | `status[]` parallelo a `frames[]` | ✅ implementato | per la biiezione e la scelta di lettura |
 
 Vincoli non negoziabili:
 - Ordine dei token preservato (traiettoria, non borsa).
 - Coerenza dimensionale interna (tutte le righe = `dimension`).
 - Coerenza posizionale tra walk e colbert (`pos` ↔ righe).
 - Pesi finiti (mai NaN/inf).
-- Soppressi (`st == 1`): in attesa di decisione condivisa (§5).
+- Soppressi (`st == 1`): restano nel buffer posizionale (DTW li penalizza),
+  esclusi dalla firma del pruning (§5 — DECISO).
 
 ---
 
-## 7. Stato lato consumatore (in allineamento)
+## 7. Stato lato consumatore (allineato)
 
 - `semantic-walk/src/parse.rs` — in allineamento al formato reale del walk
   (`ids/w/pos/st`), non più al formato `frames` immaginato nella rev 1.
 - `semantic-walk/src/ingest.rs` — definisce `CrispTrajectory` (canale denso).
 - `semantic-walk/src/ordered_sparse.rs` — definisce `OrderedSparseSequence`
-  (canale sparso ordinato), da allineare alla semantica `st`/`pos`.
+  (canale sparso ordinato), allineato alla semantica `st`/`pos`. **Fix
+  implementato e verde (21/09, ~19:20):** la `global_signature` aggrega solo i
+  token emessi (`weight > 0.0`); i soppressi restano nel buffer posizionale con
+  peso firmato. Due test verificano la proprietà relativa (il soppresso
+  condiviso non contribuisce alla firma del pruning). 13 test su
+  `ordered_sparse`, tutta la suite verde.
 
-Quando l'endpoint `/colbert/trajectory` sarà esposto, resta da scrivere il
-client HTTP (che vivrà fuori dal crate puro `semantic-walk`), allineato al
-formato JSON finale scelto.
+Resta da scrivere il **client HTTP** (che vivrà fuori dal crate puro
+`semantic-walk`), allineato al formato JSON finale in `docs/PER_TOKEN_ENDPOINTS.md`.
