@@ -1,36 +1,42 @@
 //! # parse — il ponte dai dati grezzi del server al contratto del cammino
 //!
-//! La porta che trasforma le risposte del server CrispEmbed (quando gli
-//! endpoint per-token saranno esposti) nelle strutture del contratto di
-//! `semantic-walk`: `CrispTrajectory` (matrice densa per-token) e
-//! `OrderedSparseSequence` (attivazioni sparse in ordine posizionale).
+//! La porta che trasforma i dati del server CrispEmbed nelle strutture del
+//! contratto di `semantic-walk`: `CrispTrajectory` (matrice densa per-token)
+//! e `OrderedSparseSequence` (attivazioni sparse in ordine posizionale).
 //!
 //! ## Perché esiste questo modulo
 //!
-//! Il server CrispEmbed oggi espone `/api/embeddings` (dense di frase,
-//! mean-pooling) e `/sparse` (mappa non ordinata token→peso). Nessuno dei
-//! due basta a costruire una traiettoria per-token. Gli endpoint che servono
-//! sono due:
+//! Il server CrispEmbed salva per ogni fatto il `walk` (quattro array
+//! `ids/w/pos/st` allineati per indice, una voce per occorrenza) e la matrice
+//! ColBERT per-token come multivector in Qdrant. Questo modulo trasforma quei
+//! dati grezzi nel contratto del cammino:
 //!
-//! * la **matrice ColBERT per-token** (T×1024, una riga per token in ordine),
-//! * la **head ordered-sparse con campo `walk`** (sequenza ordinata di token
-//!   con i loro pesi, posizione per posizione).
+//! * `RawWalk` → `OrderedSparseSequence` (canale sparso ordinato), applicando
+//!   il filtro d'igiene obbligatorio (`st == 0` e `id >= 4`).
+//! * `RawColbertTrajectory` → `CrispTrajectory` (canale denso per-token).
 //!
-//! Quando Federico li esporrà, questo modulo li ingoia. Nel frattempo il
-//! parsing è definito e testato su dati sintetici realistici, così l'aggancio
-//! al server vero sarà immediato: basta sostituire la sorgente dati.
+//! ## Il filtro d'igiene
 //!
-//! ## Agnostico al formato JSON esatto
+//! Il `walk` grezzo contiene rumore che va gittato via PRIMA di ogni calcolo:
 //!
-//! Le struct di input qui sotto rappresentano il **contenuto semantico** di
-//! ciò che il server restituirà, non il suo JSON esatto. Se Federico sceglie
-//! un formato diverso (nomi di campo, nesting), si adatta solo il parsing
-//! JSON — la trasformazione in `CrispTrajectory`/`OrderedSparseSequence`
-//! resta identica. È il livello che non va riscritto quando il contratto
-//! HTTP si precisa.
+//! * i passi soppressi (`st == 1`) e il padding (`st == 2`) non contano;
+//! * i token speciali (`id 0/2/3`) escono marcati `st == 0` con peso positivo,
+//!   come se fossero parole vere — in ogni cammino osservato la posizione 0 ha
+//!   `id 0` e peso ~0.18. Se ci si fida solo dello `st`, si contano i segni di
+//!   punteggiatura tra le parole.
+//!
+//! La regola, dal documento del Coder (7/09): **tieni i passi con `st == 0` e
+//! `id >= 4`**. Qualsiasi altro uso del `walk` conta rumore come segnale.
 
 use crate::ingest::CrispTrajectory;
 use crate::ordered_sparse::{OrderedSparseSequence, TokenId};
+
+/// Il peso firmato di un passo del `walk`.
+///
+/// `w > 0` → il peso conta, il token contribuisce. `w ≤ 0` → non è rumore, è
+/// un **verdetto**: il modello ha guardato il token e ha dichiarato che non
+/// doveva contare (una soppressione attiva).
+pub type WalkWeight = f32;
 
 /// La risposta grezza dell'endpoint matrice ColBERT per-token.
 ///
@@ -46,18 +52,24 @@ pub struct RawColbertTrajectory {
     pub embeddings: Vec<Vec<f64>>,
 }
 
-/// La risposta grezza dell'endpoint ordered-sparse con campo `walk`.
+/// La risposta grezza del `walk` di un fatto.
 ///
-/// Per ogni posizione, la lista delle attivazioni sparse `(token_id, peso)`
-/// dei token attivi in quella posizione.
+/// Quattro array della stessa lunghezza `T`, **allineati per indice**: una
+/// voce per occorrenza (token del testo), nell'ordine di apparizione, senza
+/// dedup — la stessa parola contata due volte esce due volte con pesi diversi.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RawSparseWalk {
-    /// L'identificativo della sequenza.
+pub struct RawWalk {
+    /// L'identificativo della sequenza (es. id del fatto).
     pub sequence_id: String,
-    /// Il walk: per ogni posizione, le coppie (token_id, peso) attive.
-    ///
-    /// `frames[i]` è l'insieme delle attivazioni sparse alla posizione `i`.
-    pub frames: Vec<Vec<(TokenId, f32)>>,
+    /// Token id XLM-R (~250k vocabolario) toccato in quel passo.
+    pub ids: Vec<TokenId>,
+    /// Peso di quell'occorrenza, **firmato** (`w > 0` conta; `w ≤ 0` è un
+    /// verdetto, non rumore).
+    pub w: Vec<WalkWeight>,
+    /// Posizione del token nell'input dell'encoder, **strettamente crescente**.
+    pub pos: Vec<u32>,
+    /// Stato del passo: `0` emesso · `1` soppresso · `2` padding.
+    pub st: Vec<u8>,
 }
 
 /// Errore di parsing: un dato grezzo che non rispetta il contratto.
@@ -68,13 +80,20 @@ pub enum ParseError {
     DimensioneIncoerente,
     /// Il numero di token non corrisponde al numero di righe della matrice.
     TokenMatriceDisallineati,
-    /// Il walk ordered-sparse contiene una posizione vuota.
+    /// Gli array del `walk` non hanno la stessa lunghezza, o un `pos` non è
+    /// strettamente crescente.
+    WalkDisallineato,
+    /// Dopo il filtro d'igiene (`st == 0` e `id >= 4`) non resta nessun passo.
     ///
-    /// Il contratto di `OrderedSparseSequence::from_frames` rifiuta le
-    /// posizioni vuote (un token senza attivazioni sparse è ambiguo). Questo
-    /// è un punto di contratto aperto con Camillo: nel mondo reale un token
-    /// può non avere attivazioni sparse, e la gestione va decisa insieme.
-    PosizioneVuota,
+    /// Il contratto di `OrderedSparseSequence` rifiuta le sequenze vuote: un
+    /// testo senza token significativi è un dato ambiguo, non una traiettoria.
+    WalkVuotoDopoFiltro,
+    /// Il numero di passi emessi dal `walk` non coincide con il numero di righe
+    /// della matrice ColBERT.
+    ///
+    /// Entrambi rappresentano la stessa traiettoria (canale denso e canale
+    /// sparso); se i due conteggi divergono il dato è corrotto.
+    CoerenzaPosizionaleFallita,
 }
 
 impl std::fmt::Display for ParseError {
@@ -86,8 +105,14 @@ impl std::fmt::Display for ParseError {
             ParseError::TokenMatriceDisallineati => {
                 write!(f, "numero di token diverso dal numero di righe della matrice")
             }
-            ParseError::PosizioneVuota => {
-                write!(f, "posizione vuota nel walk ordered-sparse")
+            ParseError::WalkDisallineato => {
+                write!(f, "array del walk non allineati o posizione non crescente")
+            }
+            ParseError::WalkVuotoDopoFiltro => {
+                write!(f, "nessun passo significativo dopo il filtro d'igiene (st==0 e id>=4)")
+            }
+            ParseError::CoerenzaPosizionaleFallita => {
+                write!(f, "passi del walk diversi dalle righe della matrice ColBERT")
             }
         }
     }
@@ -123,23 +148,100 @@ pub fn colbert_to_trajectory(raw: &RawColbertTrajectory) -> Result<CrispTrajecto
         .map_err(|_| ParseError::DimensioneIncoerente)
 }
 
-/// Costruisce una `OrderedSparseSequence` dalla risposta grezza del walk
-/// ordered-sparse.
+/// Applica il filtro d'igiene a un `walk` grezzo, restituendo i token
+/// significativi nell'ordine del cammino.
 ///
-/// Delega il calcolo della firma globale e la verifica di coerenza a
-/// `OrderedSparseSequence::from_frames`. La posizione vuota è rifiutata
-/// (contratto del modulo); il punto è aperto con Camillo.
-pub fn sparse_walk_to_sequence(raw: &RawSparseWalk) -> Result<OrderedSparseSequence, ParseError> {
-    OrderedSparseSequence::from_frames(&raw.frames)
-        .map_err(|err| match err {
-            "Una posizione della sequenza non può essere vuota" => ParseError::PosizioneVuota,
-            _ => ParseError::PosizioneVuota,
+/// Tiene i passi con `st == 0` (emesso) e `id >= 4` (non speciale), come da
+/// documento del Coder. I pesi sono i `w` originali, **firmati**: un `w ≤ 0`
+/// è un verdetto di soppressione, non rumore da gittare.
+fn walk_filtra_igiene(raw: &RawWalk) -> Vec<(TokenId, WalkWeight)> {
+    raw.ids
+        .iter()
+        .zip(raw.w.iter())
+        .zip(raw.st.iter())
+        .filter_map(|((&id, &w), &st)| {
+            // Filtro d'igiene: emesso (st==0) e non speciale (id>=4).
+            if st == 0 && id >= 4 {
+                Some((id, w))
+            } else {
+                None
+            }
         })
+        .collect()
+}
+
+/// Costruisce una `OrderedSparseSequence` dal `walk` grezzo di un fatto.
+///
+/// Applica il filtro d'igiene (`st == 0` e `id >= 4`), verifica l'allineamento
+/// degli array e la stretta crescenza di `pos`, poi delega la costruzione a
+/// `OrderedSparseSequence::from_frames`.
+///
+/// Il walk reale è già una sequenza posizionale: ogni passo emesso diventa una
+/// posizione della sequenza ordinata. Il filtro d'igiene è la selezione dei
+/// passi che contano davvero.
+pub fn walk_to_sequence(raw: &RawWalk) -> Result<OrderedSparseSequence, ParseError> {
+    // Allineamento: quattro array della stessa lunghezza.
+    let t = raw.ids.len();
+    if raw.w.len() != t || raw.pos.len() != t || raw.st.len() != t {
+        return Err(ParseError::WalkDisallineato);
+    }
+
+    // Stretta crescenza di pos: l'ordine del cammino deve essere un ordine.
+    for i in 1..t {
+        if raw.pos[i] <= raw.pos[i - 1] {
+            return Err(ParseError::WalkDisallineato);
+        }
+    }
+
+    // Filtro d'igiene: solo i passi emessi e non speciali contano.
+    let significativi = walk_filtra_igiene(raw);
+    if significativi.is_empty() {
+        return Err(ParseError::WalkVuotoDopoFiltro);
+    }
+
+    // Ogni passo emesso è una posizione della sequenza ordinata. Il walk reale
+    // ha un solo token per posizione (una voce per occorrenza), quindi ogni
+    // frame ha esattamente un elemento.
+    let frames: Vec<Vec<(TokenId, WalkWeight)>> = significativi
+        .into_iter()
+        .map(|(id, w)| vec![(id, w)])
+        .collect();
+
+    OrderedSparseSequence::from_frames(&frames)
+        .map_err(|_| ParseError::WalkVuotoDopoFiltro)
+}
+
+/// Verifica la coerenza posizionale tra il `walk` e la matrice ColBERT.
+///
+/// Il numero di passi emessi dal `walk` (dopo il filtro d'igiene) deve
+/// coincidere con il numero di righe della matrice ColBERT: entrambi
+/// rappresentano la stessa traiettoria, vista nel canale denso e in quello
+/// sparso. Se i due conteggi divergono, il dato è corrotto.
+pub fn verifica_coerenza_posizionale(
+    raw_walk: &RawWalk,
+    colbert_righe: usize,
+) -> Result<(), ParseError> {
+    let passi = walk_filtra_igiene(raw_walk).len();
+    if passi != colbert_righe {
+        return Err(ParseError::CoerenzaPosizionaleFallita);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un `walk` sintetico ben formato: `t` passi emessi, id crescenti da 4.
+    fn raw_walk(t: usize) -> RawWalk {
+        RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: (0..t).map(|i| (i + 4) as TokenId).collect(),
+            w: (0..t).map(|i| 0.1 + i as f32).collect(),
+            pos: (0..t).map(|i| i as u32).collect(),
+            st: vec![0; t],
+        }
+    }
 
     /// Una matrice per-token sintetica coerente.
     fn raw_colbert(n_tokens: usize, dim: usize) -> RawColbertTrajectory {
@@ -201,53 +303,148 @@ mod tests {
     }
 
     #[test]
-    fn sparse_walk_ben_formato_costruisce_sequenza() {
-        // Due posizioni, ognuna con le sue attivazioni sparse.
-        let raw = RawSparseWalk {
-            sequence_id: "walk_test".into(),
-            frames: vec![
-                vec![(10, 0.5), (20, 0.3)],
-                vec![(30, 0.9)],
-            ],
-        };
-        let seq = sparse_walk_to_sequence(&raw).unwrap();
-        assert_eq!(seq.num_positions(), 2);
-        assert_eq!(seq.tokens_at(0), &[10, 20]);
-        assert_eq!(seq.weights_at(0), &[0.5, 0.3]);
-        assert_eq!(seq.tokens_at(1), &[30]);
-        assert_eq!(seq.weights_at(1), &[0.9]);
+    fn walk_ben_formato_costruisce_sequenza() {
+        // Quattro passi emessi, id da 4 in su: la sequenza ha 4 posizioni.
+        let raw = raw_walk(4);
+        let seq = walk_to_sequence(&raw).unwrap();
+        assert_eq!(seq.num_positions(), 4);
+        // L'ordine del cammino è preservato: ogni posizione ha il suo token.
+        for i in 0..4 {
+            assert_eq!(seq.tokens_at(i), &[(i + 4) as TokenId]);
+            assert_eq!(seq.weights_at(i), &[0.1 + i as f32]);
+        }
     }
 
     #[test]
-    fn sparse_walk_posizione_vuota_rifiutata() {
-        // La seconda posizione è vuota: contratto del modulo la rifiuta.
-        let raw = RawSparseWalk {
-            sequence_id: "walk_test".into(),
-            frames: vec![vec![(10, 0.5)], vec![]],
+    fn walk_filtro_igiene_scarta_soppressi_e_speciali() {
+        // Passi: id 0 (speciale, st=0), id 5 (soppresso, st=1), id 6 (emesso).
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![0, 5, 6],
+            w: vec![0.18, 0.5, 0.7],
+            pos: vec![0, 1, 2],
+            st: vec![0, 1, 0],
+        };
+        let seq = walk_to_sequence(&raw).unwrap();
+        // Solo il passo id 6 (emesso e non speciale) sopravvive.
+        assert_eq!(seq.num_positions(), 1);
+        assert_eq!(seq.tokens_at(0), &[6]);
+        assert_eq!(seq.weights_at(0), &[0.7]);
+    }
+
+    #[test]
+    fn walk_filtro_igiene_gitta_padding() {
+        // Il padding (st==2) non conta, anche con id >= 4.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![4, 5, 6],
+            w: vec![0.1, 0.2, 0.3],
+            pos: vec![0, 1, 2],
+            st: vec![0, 2, 0],
+        };
+        let seq = walk_to_sequence(&raw).unwrap();
+        // Il passo con st==2 (padding) viene gittato; restano 4 e 6.
+        assert_eq!(seq.num_positions(), 2);
+        assert_eq!(seq.tokens_at(0), &[4]);
+        assert_eq!(seq.tokens_at(1), &[6]);
+    }
+
+    #[test]
+    fn walk_allineamento_violato_rifiutato() {
+        // Array di lunghezze diverse: dato corrotto.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![4, 5, 6],
+            w: vec![0.1, 0.2], // più corto di ids
+            pos: vec![0, 1, 2],
+            st: vec![0, 0, 0],
         };
         assert_eq!(
-            sparse_walk_to_sequence(&raw),
-            Err(ParseError::PosizioneVuota)
+            walk_to_sequence(&raw),
+            Err(ParseError::WalkDisallineato)
         );
     }
 
     #[test]
-    fn sparse_walk_peso_non_finito_rifiutato() {
-        // Peso NaN: dato corrotto, rifiutato da from_frames.
-        let raw = RawSparseWalk {
-            sequence_id: "walk_test".into(),
-            frames: vec![vec![(10, f32::NAN)]],
+    fn walk_posizione_non_crescente_rifiutata() {
+        // pos non strettamente crescente: l'ordine del cammino è violato.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![4, 5, 6],
+            w: vec![0.1, 0.2, 0.3],
+            pos: vec![0, 1, 1], // 1 ripetuta
+            st: vec![0, 0, 0],
         };
-        assert!(sparse_walk_to_sequence(&raw).is_err());
+        assert_eq!(
+            walk_to_sequence(&raw),
+            Err(ParseError::WalkDisallineato)
+        );
     }
 
     #[test]
-    fn sparse_walk_vuoto_rifiutato() {
-        // Nessuna posizione: sequenza vuota, rifiutata.
-        let raw = RawSparseWalk {
-            sequence_id: "walk_test".into(),
-            frames: vec![],
+    fn walk_vuoto_dopo_filtro_rifiutato() {
+        // Tutti i passi soppressi: nessun token significativo.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![4, 5, 6],
+            w: vec![0.1, 0.2, 0.3],
+            pos: vec![0, 1, 2],
+            st: vec![1, 1, 1], // tutti soppressi
         };
-        assert!(sparse_walk_to_sequence(&raw).is_err());
+        assert_eq!(
+            walk_to_sequence(&raw),
+            Err(ParseError::WalkVuotoDopoFiltro)
+        );
+    }
+
+    #[test]
+    fn walk_vuoto_per_speciali_rifiutato() {
+        // Tutti token speciali (id < 4) anche se emessi: nessun token valido.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![0, 2, 3],
+            w: vec![0.18, 0.1, 0.1],
+            pos: vec![0, 1, 2],
+            st: vec![0, 0, 0],
+        };
+        assert_eq!(
+            walk_to_sequence(&raw),
+            Err(ParseError::WalkVuotoDopoFiltro)
+        );
+    }
+
+    #[test]
+    fn coerenza_posizionale_ok() {
+        // 3 passi emessi e 3 righe ColBERT: coerenti.
+        let raw = raw_walk(3);
+        assert!(verifica_coerenza_posizionale(&raw, 3).is_ok());
+    }
+
+    #[test]
+    fn coerenza_posizionale_divergente_rifiutata() {
+        // 3 passi emessi ma 4 righe ColBERT: il dato è corrotto.
+        let raw = raw_walk(3);
+        assert_eq!(
+            verifica_coerenza_posizionale(&raw, 4),
+            Err(ParseError::CoerenzaPosizionaleFallita)
+        );
+    }
+
+    #[test]
+    fn coerenza_posizionale_conta_solo_emessi() {
+        // Il walk ha 4 passi ma 1 è soppresso: contano 3, come la matrice.
+        let raw = RawWalk {
+            sequence_id: "fatto_test".into(),
+            ids: vec![4, 5, 6, 7],
+            w: vec![0.1, 0.2, 0.3, 0.4],
+            pos: vec![0, 1, 2, 3],
+            st: vec![0, 0, 0, 1], // l'ultimo è soppresso
+        };
+        assert!(verifica_coerenza_posizionale(&raw, 3).is_ok());
+        // Con 4 righe invece fallisce: i soppressi non contano come passi.
+        assert_eq!(
+            verifica_coerenza_posizionale(&raw, 4),
+            Err(ParseError::CoerenzaPosizionaleFallita)
+        );
     }
 }
