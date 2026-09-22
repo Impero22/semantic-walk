@@ -213,15 +213,24 @@ pub fn walk_to_sequence(raw: &RawWalk) -> Result<OrderedSparseSequence, ParseErr
 
 /// Verifica la coerenza posizionale tra il `walk` e la matrice ColBERT.
 ///
-/// Il numero di passi emessi dal `walk` (dopo il filtro d'igiene) deve
-/// coincidere con il numero di righe della matrice ColBERT: entrambi
-/// rappresentano la stessa traiettoria, vista nel canale denso e in quello
-/// sparso. Se i due conteggi divergono, il dato è corrotto.
+/// Il numero di passi **totali** del `walk` (tutti, inclusi i token speciali
+/// `<s>`/`</s>`) deve coincidere con il numero di righe della matrice ColBERT:
+/// entrambi rappresentano la stessa traiettoria, vista nel canale denso e in
+/// quello sparso. Se i due conteggi divergono, il dato è corrotto.
+///
+/// Il filtro d'igiene (`st == 0` e `id >= 4`) è un concetto del crate, che
+/// serve al DTW a valle per escludere i token non significativi dal cammino;
+/// non entra nella verifica di coerenza posizionale, che riguarda
+/// l'allineamento dei due canali alla fonte.
 pub fn verifica_coerenza_posizionale(
     raw_walk: &RawWalk,
     colbert_righe: usize,
 ) -> Result<(), ParseError> {
-    let passi = walk_filtra_igiene(raw_walk).len();
+    // La biiezione del contratto è `frames.length == colbert n_tokens`: il
+    // frames mode del server include i token speciali (droppa solo il padding),
+    // e la matrice ColBERT ha una riga per ogni token, speciali compresi.
+    // Quindi si confronta il numero TOTALE di passi del walk con le righe.
+    let passi = raw_walk.ids.len();
     if passi != colbert_righe {
         return Err(ParseError::CoerenzaPosizionaleFallita);
     }
@@ -431,8 +440,10 @@ mod tests {
     }
 
     #[test]
-    fn coerenza_posizionale_conta_solo_emessi() {
-        // Il walk ha 4 passi ma 1 è soppresso: contano 3, come la matrice.
+    fn coerenza_posizionale_conta_tutti_i_passi() {
+        // Il walk ha 4 passi (1 soppresso, 3 emessi): la biiezione conta TUTTI
+        // i passi, soppressi compresi — la matrice ColBERT ha una riga per ogni
+        // token della sequenza, anche per quelli che il DTW poi scarterà.
         let raw = RawWalk {
             sequence_id: "fatto_test".into(),
             ids: vec![4, 5, 6, 7],
@@ -440,10 +451,31 @@ mod tests {
             pos: vec![0, 1, 2, 3],
             st: vec![0, 0, 0, 1], // l'ultimo è soppresso
         };
-        assert!(verifica_coerenza_posizionale(&raw, 3).is_ok());
-        // Con 4 righe invece fallisce: i soppressi non contano come passi.
+        // 4 passi totali == 4 righe ColBERT: coerente.
+        assert!(verifica_coerenza_posizionale(&raw, 4).is_ok());
+        // Con 3 righe invece fallisce: la matrice non copre tutti i passi.
         assert_eq!(
-            verifica_coerenza_posizionale(&raw, 4),
+            verifica_coerenza_posizionale(&raw, 3),
+            Err(ParseError::CoerenzaPosizionaleFallita)
+        );
+    }
+
+    #[test]
+    fn coerenza_posizionale_con_token_speciali() {
+        // Caso reale dal server: walk con token speciali <s> (id 0) e </s> (id 2)
+        // inclusi. 7 passi totali, 7 righe ColBERT: la biiezione regge.
+        let raw = RawWalk {
+            sequence_id: "il_gatto_dorme".into(),
+            ids: vec![0, 211, 27294, 188, 54, 24022, 2],
+            w: vec![0.216, 0.146, 0.262, 0.192, 0.229, 0.183, 0.204],
+            pos: vec![0, 1, 2, 3, 4, 5, 6],
+            st: vec![0, 0, 0, 0, 0, 0, 0],
+        };
+        // 7 passi totali (speciali inclusi) == 7 righe ColBERT.
+        assert!(verifica_coerenza_posizionale(&raw, 7).is_ok());
+        // 5 (solo i significativi) NON è il conteggio della biiezione.
+        assert_eq!(
+            verifica_coerenza_posizionale(&raw, 5),
             Err(ParseError::CoerenzaPosizionaleFallita)
         );
     }
