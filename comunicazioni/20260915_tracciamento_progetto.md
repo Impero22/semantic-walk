@@ -442,3 +442,28 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Commit `e893dc0`** su `main` (locale). Push attende il token di Camillo.
 
 **Prossimo passo**: catturare la fixture reale quando il frames mode del server sarà deployato, completare il Level 3, poi l'adattatore JSON→RawWalk/RawColbertTrajectory.
+
+## 23/09/26 00:05 — ⚠️ Finding: discontinuità strutturale tra filtro del walk e traiettoria densa
+
+**Idee di partenza**: dopo aver completato le asserzioni verificabili dello scheletro, ho verificato come il DTW consuma le sequenze ordered-sparse, per confermare che la posizione assoluta `i` fosse preservata dopo il filtro.
+
+**Obiettivi**: (1) confermare che `align_with_ordered_sparse` allinea le sequenze filtrate in modo relativo; (2) verificare che la biiezione `frames.length == colbert n_tokens` regga fino al DTW.
+
+**Metodi utilizzati**: lettura di `align_with_ordered_sparse` (dtw.rs:159), `colbert_to_trajectory` (parse.rs:129), `walk_to_sequence` (parse.rs:182), ricerca di meccanismi di filtro sulla traiettoria densa in ingest.rs/lib.rs.
+
+**Risultati attesi**: la posizione assoluta `i` preservata; nessun disallineamento.
+
+**Risultati ottenuti** — **DISCONTINUITÀ STRUTTURALE CONFERMATA**:
+- `verifica_coerenza_posizionale` asserisce `frames.length == colbert n_tokens` (7 == 7) — la biiezione alla **fonte**.
+- `walk_to_sequence` applica il filtro d'igiene → **5** passi significativi (scarta speciali 0 e 2).
+- `colbert_to_trajectory` NON applica alcun filtro → **7** righe (tutti i token).
+- `align_with_ordered_sparse` (dtw.rs:175) richiede `sparse_a.num_positions() == seq_a.len()` → **5 ≠ 7** → fallisce con "Disallineamento tra sequenze dense e guide ordered-sparse".
+- **Non esiste** alcun meccanismo che filtri la traiettoria densa per allinearla ai passi significativi del walk (verificato in ingest.rs/lib.rs).
+
+**Implicazione**: il contratto approvato con Camillo ha una discontinuità. La biiezione alla fonte (7==7) si rompe quando il walk viene filtrato a 5, perché la traiettoria densa resta a 7. Il DTW richiede che le due lunghezze coincidano.
+
+**Due opzioni di disegno (da decidere con Camillo, non decido da sola — tocca il contratto approvato)**:
+- **(a)** Filtrare anche la traiettoria densa sugli stessi indici del walk (serve una funzione che mappi gli indici filtrati agli embedding corrispondenti — la traiettoria e il walk condividono la posizione assoluta `i`).
+- **(b)** Non filtrare il walk a monte (tenere i token speciali come posizioni), e spostare il filtro d'igiene solo nel confronto `positional_jaccard` — ma questo confligge con l'asserto del Level 2 (`num_positions() == 5`).
+
+**Prossimo passo**: portare il finding a Camillo con le due opzioni, prima di agganciare i dati reali. Il mio test Level 2 è coerente con l'opzione (a) — se scegliamo (a), va aggiunto il filtro denso; se (b), va rivisto il Level 2.
