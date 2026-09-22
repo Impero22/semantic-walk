@@ -46,10 +46,10 @@ fn level1_parsing_json_preserva_ordine_righe() {
 
     let traj = colbert_to_trajectory(&raw).expect("traiettoria ben formata");
 
-    // Il contratto: il numero di passi della traiettoria == N.
-    // TODO: esporre `len()`/`num_tokens()` su CrispTrajectory se non già
-    // presente, e asserire che `traj.len() == n_tokens`.
-    let _ = &traj;
+    // Il contratto: il numero di passi della traiettoria == N. Verificabile
+    // ORA per costruzione: `colbert_to_trajectory` conserva l'array 0..N-1
+    // senza riordini né dedup, e `CrispTrajectory::len()` conta gli embedding.
+    assert_eq!(traj.len(), n_tokens, "N passi della traiettoria == N token");
 
     // La riga i deve corrispondere al token i: verifichiamo la biiezione
     // attraverso la coerenza posizionale con un walk allineato.
@@ -64,9 +64,9 @@ fn level1_parsing_json_preserva_ordine_righe() {
         .expect("N passi del walk == N righe ColBERT");
 
     // Asserzione critica da completare quando il server espone il frames mode:
-    // il numero di righe deserializzate deve coincidere con il numero di token
-    // dichiarati dal payload, senza che il parsing ne alteri la lunghezza.
-    todo!("asserire traj.len() == tokens.len() e che la riga i corrisponda al token i");
+    // la riga `i` deserializzata deve corrispondere al token `i` dichiarato
+    // dal payload, senza che il parsing ne alteri l'ordine né la lunghezza.
+    todo!("con la fixture reale: asserire che la riga i della matrice corrisponda al token i dichiarato dal payload");
 }
 
 // ---------------------------------------------------------------------------
@@ -95,14 +95,24 @@ fn level2_filtro_igiene_preserva_posizione_assoluta() {
 
     // I token speciali (0 e 2) devono essere esclusi dal buffer: il cammino
     // deve avere 5 passi significativi (211, 27294, 188, 54, 24022).
-    // TODO: esporre `num_positions()` (già presente) e asserire che
-    // `seq.num_positions() == 5`.
-    let _ = &seq;
+    // Questa parte è verificabile ORA, per costruzione del filtro d'igiene,
+    // senza attendere il frames mode del server.
+    assert_eq!(seq.num_positions(), 5, "i 5 token significativi sopravvivono al filtro");
 
-    // Asserzione critica: il DTW deve mappare questi 5 passi alle righe
-    // ColBERT corrette. Con il frames mode, la posizione assoluta i nel testo
-    // è preservata anche dopo il filtro.
-    todo!("asserire seq.num_positions() == 5 e che le posizioni sopravvissute siano 1,2,3,4,5");
+    // L'ordine posizionale dei sopravvissuti è quello del testo: il filtro
+    // non riordina, scarta soltanto. Ogni posizione ha un solo token (il walk
+    // reale ha una voce per occorrenza), quindi tokens_at(i) è un singoletto.
+    let attesi: Vec<u32> = vec![211, 27294, 188, 54, 24022];
+    for (i, &id) in attesi.iter().enumerate() {
+        assert_eq!(seq.tokens_at(i), &[id], "token alla posizione {i}");
+    }
+
+    // Asserzione critica rimandata alla fixture reale: il frames mode del
+    // server deve garantire che la posizione assoluta `i` nel testo sia
+    // preservata anche dopo il filtro, così che il DTW mappi la riga ColBERT
+    // corretta. La biiezione è già coperta da `verifica_coerenza_posizionale`
+    // a monte; qui resta l'ancora finché non catturiamo il payload reale.
+    todo!("con la fixture reale: asserire che la riga i della matrice ColBERT corrisponda al token i del cammino filtrato");
 }
 
 // ---------------------------------------------------------------------------
