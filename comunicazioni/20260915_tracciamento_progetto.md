@@ -404,3 +404,22 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **⚠️ Nota operativa**: il server aggiornato è solo sulla `.18` (porta 8091); la `.5` ha lo stesso layout ma lo swap è in attesa di scheduling.
 
 **Prossimo passo**: scrivere l'adattatore JSON→RawWalk/RawColbertTrajectory e testarlo contro la `.18`. Documento: `20260922_verifica_contratto_vetta_semantic.md`.
+
+## 22/09/26 22:51 — Scheletro test a 3 livelli per il contratto frames mode per-token
+
+**Idee di partenza**: Camillo ha approvato la struttura a 3 livelli del contratto che lega il walk ordinato (canale sparso) alla matrice ColBERT per-token (canale denso), e ha chiesto di committare lo scheletro dei test su `main` prima del prossimo riavvio. Il frames mode del server non è ancora deployato su nessuna delle due macchine (.5 e .18 rispondono a `/health` ma non espongono `/ordered-sparse`), quindi serviva un'ancora esplicita che documentasse il contratto atteso e fallisse al punto critico finché i dati reali non arrivano.
+
+**Obiettivi**: (1) fissare per iscritto i tre livelli del contratto; (2) fornire test-scheletro che compilino e falliscano con `todo!()` al punto critico; (3) non toccare la suite reale.
+
+**Metodi utilizzati**: lettura delle API esistenti (`from_frames`, `walk_to_sequence`, `verifica_coerenza_posizionale`, `colbert_to_trajectory`), scrittura di un integration test dedicato in `semantic-walk/tests/`, verifica di compilazione ed esecuzione.
+
+**Risultati attesi**: scheletro che compila, tre test che falliscono solo sui `todo!()` (dopo che le asserzioni non-todo — coerenza posizionale, costruzione sequenza — sono passate), suite reale intatta.
+
+**Risultati ottenuti**:
+- **Level 1 — Parsing JSON**: la deserializzazione preserva l'array `0..N-1` senza alterare la corrispondenza con le righe ColBERT (`level1_parsing_json_preserva_ordine_righe`).
+- **Level 2 — Filtro d'igiene**: l'azzeramento del peso sui token d'igiene (`st==0 && id>=4`) lascia intatta la posizione assoluta `i`, così il DTW mappa la riga `i` corretta (`level2_filtro_igiene_preserva_posizione_assoluta`).
+- **Level 3 — Fixture reale**: la sequenza di 7 token ("gatto dorme" con `<s>` e `</s>`) dimostra che l'unica eliminazione ammessa alla fonte è il padding finale `<pad>` (`level3_fixture_reale_solo_padding_finale_eliminato`).
+- Compilazione ok; i tre test falliscono con `todo!()` al punto critico (atteso); la suite reale resta verde (61 unit + 8 integration).
+- **Commit `5319a6b`** su `main` (locale). Il push attende il token di Camillo, come gli altri.
+
+**Prossimo passo**: completare le asserzioni `todo!()` quando il frames mode del server sarà deployato e cattureremo la fixture reale; poi l'adattatore JSON→RawWalk/RawColbertTrajectory. Documento: `semantic-walk/tests/scheletro_3_livelli.rs`.
