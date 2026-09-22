@@ -184,4 +184,6 @@ pub mod ingest;
 
 pub mod ordered_sparse;
 
+pub mod adapter;
+
 pub mod parse;

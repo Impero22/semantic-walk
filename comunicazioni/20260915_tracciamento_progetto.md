@@ -367,3 +367,40 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Punto di contratto aperto con Camillo**: `OrderedSparseSequence::from_frames` rifiuta le posizioni vuote (un token senza attivazioni sparse è ambiguo), ma nel mondo reale un token può non avere attivazioni sparse a una posizione. La gestione va decisa insieme: saltare le posizioni vuote, token speciale, o altro.
 
 **Documenti**: `semantic-walk/src/parse.rs`, commit `a685f58`.
+
+## 22/09/26 00:22 — Risposta di Sonus sul pruning Pareto: la soluzione di disegno
+
+**Idee di partenza**: la review esterna (Sonus, crediti Alibaba) ha confermato il finding più grave: il pruning Pareto branch-level non preserva il winner dell'accumulo per candidato. Il teorema di dominanza individuale è corretto, ma l'applicazione a una somma per candidato è sbagliata. Prima di scrivere codice, serviva una seconda voce indipendente sulla SOLUZIONE di disegno, non sulla diagnosi (già confermata su codice reale).
+
+**Obiettivi**: (1) ottenere da Sonus una risposta formale su quale criterio di pruning preservi il winner; (2) capire se esiste una condizione sufficiente di scarto per ramo o se il problema è intrinsecamente globale; (3) ottenere una raccomandazione pratica implementabile.
+
+**Metodi utilizzati**: domanda precisa e circoscritta a Sonus (`comunicazioni/20260922_domanda_sonus_pareto.md`), con contesto minimo: struttura rami→candidati, costi a 3 assi in [0,1] (minimo = migliore), winner = somma minima per candidato, controesempio esatto, domanda aperta ma orientata sulla soluzione.
+
+**Risultati attesi**: un criterio formalmente corretto di pruning, o la dimostrazione che il problema è globale, con complessità asintotica e raccomandazione pratica.
+
+**Risultati ottenuti** (risposta Sonus `comunicazioni/20260922_response_sonus_pareto.md`):
+- **Controesempio più forte del mio** (senza candidati vuoti): A con un ramo (0.2,0.2,0.2)=0.6; B con (0.3,0.3,0.3)=0.9 e (0.4,0,0)=0.4. Il ramo di A domina quello da 0.9, l'altro è incomparabile. Sul totale A vince 0.6 vs 1.3; dopo il pruning resta {a,t} → B "vince" 0.4 vs 0.6. Anche tenendo ogni candidato rappresentato, la dominanza individuale inverte il risultato. **La dominanza tra rami non basta mai.**
+- **Soluzione**: il teorema utile è l'eliminazione a livello di candidato: se il lower bound di un candidato supera l'upper bound dell'incumbent (`L_c > U_d`), quel candidato è matematicamente escluso e puoi smettere di valutarlo SENZA toccare il suo punteggio. Regola pratica: `partial > incumbent` → stop.
+- **Prova Ω(N)**: non esiste un pruning sublineare generale — per candidati quasi pari devi leggere tutto. L'early termination ha lo stesso caso peggiore O(N+C) dell'accumulo diretto.
+- **Raccomandazione pratica**: (1) confermare l'obiettivo (minimo costi sommati vs massimo ampiezze); (2) tenere la somma piena come oracolo di correttezza; (3) rimuovere il Pareto branch-level dal percorso additivo; (4) implementare early termination per candidato contro incumbent completato; (5) testare contro l'oracolo su casi avversi (ties, zeri, conteggi disuguali, duplicati, near-ties avversari, permutazioni d'ordine). Nota chiave: "non trasformare i costi cancellati in un vantaggio per il candidato" — è esattamente il bug che avevamo.
+- Verifica di Sonus: 21.297 istanze testate (1-3 candidati, 1-3 rami, contributi {0,1,2}) — tutte preservano l'insieme dei minimizzatori.
+
+**Prossimo passo**: aggiornare il piano con Camillo. La strada è chiara: sostituire il pruning Pareto branch-level con early termination per candidato. Documenti: `20260922_domanda_sonus_pareto.md`, `20260922_response_sonus_pareto.md`.
+
+## 22/09/26 20:05 — Verifica contratto di ingest contro vetta-semantic (.18)
+
+**Idee di partenza**: Federico ha sostituito il crispembed della `.18` con la versione comprendente le modifiche richieste, e ha consegnato la documentazione completa (`VETTA_SEMANTIC_API.md`). Serviva verificare che il ponte di ingest (parse.rs) fosse allineato agli endpoint esposti, e individuare il pezzo mancante per l'aggancio ai dati reali.
+
+**Obiettivi**: (1) verificare che `/colbert/encode?tokens=1` e `/ordered-sparse?format=frames` espongano ciò che `RawColbertTrajectory` e `RawWalk` consumano; (2) confermare la biiezione `frames.length == colbert n_tokens`; (3) individuare la scelta di disegno per l'adattatore mancante.
+
+**Metodi utilizzati**: lettura integrale della documentazione, cross-check campo-per-campo contro le struct di parse.rs, verifica della coerenza posizionale.
+
+**Risultati attesi**: contratto allineato o disallineato, con l'elenco dei punti da correggere.
+
+**Risultati ottenuti**:
+- **Contratto allineato su tutti i punti**: matrice ColBERT per-token ↔ `RawColbertTrajectory`; walk ordered-sparse (pesi firmati, status 0/1/2, posizioni crescenti) ↔ `RawWalk`; biiezione garantita dal doc ↔ `verifica_coerenza_posizionale`.
+- **Scoperta chiave**: `semantic-walk` è un crate puro (niente reqwest/serde/HTTP). `RawWalk` e `RawColbertTrajectory` sono tipi intermedî, ma **l'adattatore JSON→RawWalk/RawColbertTrajectory non esiste ancora** — è il pezzo mancante dell'aggancio ai dati reali.
+- **Scelta di disegno (deciso da Iris)**: (1) forma **flat** (`{n, ids, weights, positions, status}`) — `walk_to_sequence` assume un token per posizione; (2) mapping esplicito dei nomi dei campi (`weights/positions/status` → `w/pos/st`); (3) dopo la costruzione, invocare `verifica_coerenza_posizionale` per garantire la biiezione prima dell'allineamento DTW.
+- **⚠️ Nota operativa**: il server aggiornato è solo sulla `.18` (porta 8091); la `.5` ha lo stesso layout ma lo swap è in attesa di scheduling.
+
+**Prossimo passo**: scrivere l'adattatore JSON→RawWalk/RawColbertTrajectory e testarlo contro la `.18`. Documento: `20260922_verifica_contratto_vetta_semantic.md`.

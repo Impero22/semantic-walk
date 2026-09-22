@@ -308,6 +308,8 @@ dependencies = [
  "proptest",
  "semantic-combiner",
  "semantic-gate",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
