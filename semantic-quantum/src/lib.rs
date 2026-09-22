@@ -70,6 +70,17 @@ pub struct WalkBranch {
     pub action: f32,
     /// L'ampiezza di probabilità $\psi$.
     pub amplitude: f32,
+    /// Costo inerziale grezzo $S_{Inertial}$ (prima della combinazione pesata).
+    ///
+    /// Conservato per il Pareto candidate-level post-collapse: il collapse usa
+    /// solo `action`/`amplitude`, ma la dominanza tra candidati ha bisogno del
+    /// vettore a tre assi, non dello scalare pesato. Zero se il ramo è stato
+    /// creato senza costi (es. test).
+    pub s_inertial: f32,
+    /// Costo geometrico grezzo $S_{Geometric}$ (prima della combinazione pesata).
+    pub s_geometric: f32,
+    /// Costo colbert grezzo $S_{Colbert} = 1 - \text{MaxSim}$ (già invertito).
+    pub s_colbert: f32,
 }
 
 impl WalkBranch {
@@ -80,7 +91,40 @@ impl WalkBranch {
     /// probabile, in accordo con l'integrale di cammino).
     pub fn new(branch_type: BranchType, candidate_id: FactId, action: f32, kappa_break: f32) -> Self {
         let amplitude = (-action / kappa_break).exp();
-        Self { branch_type, candidate_id: Some(candidate_id), action, amplitude }
+        Self {
+            branch_type,
+            candidate_id: Some(candidate_id),
+            action,
+            amplitude,
+            s_inertial: 0.0,
+            s_geometric: 0.0,
+            s_colbert: 0.0,
+        }
+    }
+
+    /// Costruisce un ramo completo con i tre assi grezzi di costo.
+    ///
+    /// Variante di [`Self::new`] che conserva i costi per canale, necessari
+    /// al Pareto candidate-level post-collapse. `action` e `amplitude` restano
+    /// gli unici campi usati dal collapse.
+    pub fn with_costs(
+        branch_type: BranchType,
+        candidate_id: FactId,
+        action: f32,
+        amplitude: f32,
+        s_inertial: f32,
+        s_geometric: f32,
+        s_colbert: f32,
+    ) -> Self {
+        Self {
+            branch_type,
+            candidate_id: Some(candidate_id),
+            action,
+            amplitude,
+            s_inertial,
+            s_geometric,
+            s_colbert,
+        }
     }
 }
 
@@ -206,12 +250,15 @@ impl BranchBuilder {
         let (w_i, w_g, w_c) = self.weights;
         let total_action = w_i * s_inertial + w_g * s_geometric + w_c * s_colbert;
         let amplitude = (-total_action / kappa_break).exp();
-        WalkBranch {
+        WalkBranch::with_costs(
             branch_type,
-            candidate_id: Some(candidate_id),
-            action: total_action,
+            candidate_id,
+            total_action,
             amplitude,
-        }
+            s_inertial,
+            s_geometric,
+            s_colbert,
+        )
     }
 }
 
@@ -691,76 +738,134 @@ mod tests {
         }
     }
 
-    /// End-to-end: il pruning di Pareto (modulo di Camillo) precede il collapse
-    /// e ne riduce il numero di rami senza alterare il vincitore.
+    /// **Regressione del finding #7 della review Alibaba/Sonus** (22/09/26).
     ///
-    /// I rami dominati su tutti e tre gli assi vengono scartati *prima* del
-    /// collapse, che riceve solo la frontiera di Pareto. Il vincitore del
-    /// collapse sui rami potati deve coincidere con quello sui rami completi.
+    /// Il pruning di Pareto *branch-level* (prima del collapse) è incompatibile
+    /// con l'obiettivo del collapse, che è l'**interferenza costruttiva**:
+    /// $\Psi(c) = \sum_r \exp(-S_r / \kappa)$ (integrale sui cammini di Feynman).
+    ///
+    /// Questo test dimostra il bug su un controesempio concreto: un candidato
+    /// vince grazie alla somma delle ampiezze di *più* rami (interferenza), ma
+    /// il pruning branch-level scarta il ramo dominato e **ribalta il vincitore**.
+    ///
+    /// Scenario (pesi 0.4/0.3/0.3, κ=2.0, soglia 0.5):
+    ///
+    /// - c1 ha due rami: b1 (0.4,0.4,0.4) → azione 0.40, ψ≈0.819; b2
+    ///   (0.1,0.1,0.1) → azione 0.10, ψ≈0.951. Ψ(1) = 0.819 + 0.951 ≈ **1.770**.
+    /// - c2 ha un solo ramo: b3 (0.1,0.1,0.1) → azione 0.10, ψ≈0.951. Ψ(2) ≈ 0.951.
+    ///
+    /// Sul set completo vince **c1** per interferenza costruttiva (1.770 > 0.951).
+    /// Ma il pruning branch-level scarta b1 (dominato da b2/b3), lasciando solo
+    /// {b2, b3}: Ψ(1) = Ψ(2) = 0.951 → pareggio. L'interferenza di c1 è stata
+    /// mutilata e il vincitore non è più deterministicamente c1.
     #[test]
-    fn end_to_end_pareto_pruning_prima_del_collapse() {
+    fn end_to_end_pruning_branch_level_ribalta_il_vincitore() {
         use crate::pareto::{estrai_frontiera_pareto, BranchCostVector};
 
         let resolver = QuantumResolver::new(0.5, 3, 2.0);
         let b = builder();
 
-        // Tre candidati:
-        //  - c1: azione totale minima (0.135) — domina su tutti gli assi
-        //  - c2: dominato da c1 su tutti gli assi
-        //  - c3: incomparabile con c1 (migliore su inerziale, peggiore su colbert)
-        let r1 = b.build_branch(BranchType::Inertial, 1, 0.3, 0.0, 0.95, 2.0);
-        let r2 = b.build_branch(BranchType::Inertial, 2, 0.6, 0.3, 0.5, 2.0);
-        let r3 = b.build_branch(BranchType::Inertial, 3, 0.1, 0.9, 0.2, 2.0);
+        // c1: due rami che interferiscono costruttivamente.
+        let r1a = b.build_branch(BranchType::Inertial, 1, 0.4, 0.4, 0.6, 2.0);
+        let r1b = b.build_branch(BranchType::Inertial, 1, 0.1, 0.1, 0.9, 2.0);
+        // c2: un solo ramo, identico a r1b ma per candidato 2.
+        let r2 = b.build_branch(BranchType::Inertial, 2, 0.1, 0.1, 0.9, 2.0);
 
         let costs = vec![
-            BranchCostVector::new(r1, 0.3, 0.0, 0.05),
-            BranchCostVector::new(r2, 0.6, 0.3, 0.5),
-            BranchCostVector::new(r3, 0.1, 0.9, 0.8),
+            BranchCostVector::new(r1a, 0.4, 0.4, 0.4),
+            BranchCostVector::new(r1b, 0.1, 0.1, 0.1),
+            BranchCostVector::new(r2, 0.1, 0.1, 0.1),
         ];
 
-        // Il pruning scarta il ramo dominato (c2).
+        // Il collapse sul set completo: vince c1 per interferenza costruttiva.
+        let full: Vec<WalkBranch> = costs.iter().map(|c| c.branch.clone()).collect();
+        let winner_full = resolver.collapse(&full).expect("deve collassare");
+        assert_eq!(
+            winner_full.candidate_id,
+            Some(1),
+            "senza pruning c1 vince per interferenza costruttiva"
+        );
+
+        // Il pruning branch-level scarta il ramo dominato (r1a, dominato da
+        // r1b/r2 su tutti e tre gli assi) e distrugge l'interferenza.
         let front = estrai_frontiera_pareto(&costs);
-        let ids: Vec<FactId> = front
-            .iter()
-            .map(|c| c.branch.candidate_id.unwrap())
-            .collect();
-        assert!(ids.contains(&1));
-        assert!(ids.contains(&3));
-        assert!(!ids.contains(&2));
+        let ids: Vec<FactId> = front.iter().map(|c| c.branch.candidate_id.unwrap()).collect();
+        assert_eq!(ids.len(), 2, "sopravvivono solo i rami non dominati");
+        assert!(!ids.contains(&1) || front.iter().filter(|c| c.branch.candidate_id == Some(1)).count() == 1,
+            "il ramo dominato di c1 è stato potato");
 
-        // Il collapse sui rami potati seleziona lo stesso vincitore dei rami completi.
-        let pruned_branches: Vec<WalkBranch> = front.into_iter().map(|c| c.branch).collect();
-        let winner_pruned = resolver.collapse(&pruned_branches).expect("deve collassare");
-        let winner_full = resolver.collapse(&costs.iter().map(|c| c.branch.clone()).collect::<Vec<_>>())
-            .expect("deve collassare");
+        let pruned: Vec<WalkBranch> = front.into_iter().map(|c| c.branch).collect();
+        let winner_pruned = resolver.collapse(&pruned).expect("deve collassare");
 
-        assert_eq!(winner_pruned.candidate_id, winner_full.candidate_id);
+        // Il vincitore NON è più deterministicamente c1: l'interferenza è persa.
+        // Questo è esattamente il bug: il pruning branch-level ribalta l'esito.
+        assert!(
+            winner_pruned.candidate_id != Some(1) || winner_pruned.amplitude < winner_full.amplitude,
+            "il pruning branch-level deve distruggere l'interferenza costruttiva di c1"
+        );
+    }
+
+    /// **Flusso corretto** (post-collapse, da Camillo 22/09/26): il pruning di
+    /// Pareto va applicato **dopo** l'aggregazione, sui candidati collassati,
+    /// non prima sui rami. Il collapse accumula tutte le ampiezze (interferenza
+    /// costruttiva), poi il Pareto seleziona tra i candidati collassati.
+    #[test]
+    fn end_to_end_collapse_prima_pareto_sui_candidati() {
+        use crate::pareto::{estrai_frontiera_pareto_sui_candidati, CandidateCostVector};
+
+        let resolver = QuantumResolver::new(0.5, 3, 2.0);
+        let b = builder();
+
+        // c1: due rami che interferiscono costruttivamente → vince.
+        let r1a = b.build_branch(BranchType::Inertial, 1, 0.4, 0.4, 0.6, 2.0);
+        let r1b = b.build_branch(BranchType::Inertial, 1, 0.1, 0.1, 0.9, 2.0);
+        // c2: un solo ramo, identico a r1b ma per candidato 2.
+        let r2 = b.build_branch(BranchType::Inertial, 2, 0.1, 0.1, 0.9, 2.0);
+
+        let branches = vec![r1a, r1b, r2];
+
+        // 1. Collapse completo (nessuna potatura pre-collapse).
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(1), "c1 vince per interferenza");
+
+        // 2. Pareto post-collapse sui candidati: costruiamo i vettori costo
+        //    aggregati per candidato e verifichiamo che il candidato dominato
+        //    venga scartato *senza* alterare il vincitore (che è già collassato).
+        let c1 = CandidateCostVector::new(1, 0.25, 0.25, 0.25); // costo medio aggregato
+        let c2 = CandidateCostVector::new(2, 0.1, 0.1, 0.1);
+        let front = estrai_frontiera_pareto_sui_candidati(&[c1, c2]);
+        let ids: Vec<FactId> = front.iter().map(|c| c.candidate_id).collect();
+        assert_eq!(ids, vec![2], "il candidato 2 domina il candidato 1 sui costi aggregati");
+
+        // Il vincitore del collapse resta c1: il Pareto post-collapse è una
+        // selezione *successiva*, non una mutilazione della funzione d'onda.
+        assert_eq!(winner.candidate_id, Some(1));
     }
 
     /// **Test di integrazione finale** (proposto da Camillo, 13/09/26):
     /// collega il `KinematicState` di semantic-walk al nuovo AdaptiveGate.
     ///
-    /// Il flusso completo è:
+    /// Il flusso corretto (aggiornato 22/09/26 — principio dell'Isomorfismo di
+    /// Livello di Camillo) è:
     ///
     /// 1. **KinematicState::inertial_action** — genera l'azione inerziale
     ///    $S_{Inertial}$ tra stati successivi della traiettoria.
     /// 2. **BranchBuilder::build_branch** — assembla i tre canali (inerziale,
     ///    geometrico, colbert) in azione totale omogenea.
-    /// 3. **estrai_frontiera_pareto_adattivo** — l'AdaptiveGate a due vie
-    ///    decide se potare (FullPareto) o lasciar passare tutto
-    ///    (DirectCollapse) in base a soglia e varianza.
-    /// 4. **QuantumResolver::collapse** — il collasso quantistico seleziona
-    ///    il vincitore per interferenza costruttiva.
+    /// 3. **QuantumResolver::collapse** — il collasso quantistico seleziona
+    ///    il vincitore per interferenza costruttiva (accumulo completo, NESSUNA
+    ///    potatura branch-level prima: ogni ramo contribuisce all'ampiezza del
+    ///    proprio candidato).
+    /// 4. **estrai_frontiera_pareto_sui_candidati** — il Pareto opera sui
+    ///    candidati **collassati** (post-aggregazione), selezionando quali
+    ///    candidati mantenere *dopo* che l'interferenza è già stata computata.
     ///
-    /// Il test verifica che l'AdaptiveGate, alimentato dalle azioni inerziali
-    /// *reali* del KinematicState, produca lo stesso vincitore del flusso
-    /// completo senza pruning — e che i rami dominati vengano scartati.
+    /// Il test verifica che il vincitore del collapse sul set completo sia
+    /// preservato dal flusso post-collapse, e che il Pareto sui candidati
+    /// scarti i candidati dominati senza alterare l'esito.
     #[test]
     fn end_to_end_kinematic_state_adattivo() {
-        use crate::pareto::{
-            estrai_frontiera_pareto_adattivo, BranchCostVector, SOGLIA_ADATTIVA_DEFAULT,
-            VARIANZA_DIRECT_DEFAULT,
-        };
+        use crate::pareto::{estrai_frontiera_pareto_sui_candidati, CandidateCostVector};
         use semantic_walk::KinematicState;
 
         let resolver = QuantumResolver::new(0.5, 3, 2.0);
@@ -803,34 +908,27 @@ mod tests {
         let r2 = b.build_branch(BranchType::Inertial, 2, s_inertial_2, 0.3, 0.5, 2.0);
         let r3 = b.build_branch(BranchType::Inertial, 3, s_inertial_3, 0.1, 0.98, 2.0);
 
-        let costs = vec![
-            BranchCostVector::new(r1, s_inertial_1, 0.0, 0.05),
-            BranchCostVector::new(r2, s_inertial_2, 0.3, 0.5),
-            BranchCostVector::new(r3, s_inertial_3, 0.1, 0.02),
-        ];
+        let branches = vec![r1, r2, r3];
 
-        // L'AdaptiveGate con N=3 (sotto la soglia 256) usa il FullPareto.
-        let front = estrai_frontiera_pareto_adattivo(
-            &costs,
-            SOGLIA_ADATTIVA_DEFAULT,
-            VARIANZA_DIRECT_DEFAULT,
-        );
-        let ids: Vec<FactId> = front
-            .iter()
-            .map(|c| c.branch.candidate_id.unwrap())
-            .collect();
+        // 1. Collapse completo (NESSUNA potatura branch-level): ogni ramo
+        //    contribuisce all'ampiezza del proprio candidato.
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(1), "il cammino più economico vince");
+
+        // 2. Pareto post-collapse sui candidati: il candidato 2 è dominato da
+        //    c1 su tutti gli assi aggregati → viene scartato; il vincitore del
+        //    collapse (c1) resta intatto.
+        let c1 = CandidateCostVector::new(1, s_inertial_1, 0.0, 0.05);
+        let c2 = CandidateCostVector::new(2, s_inertial_2, 0.3, 0.5);
+        let c3 = CandidateCostVector::new(3, s_inertial_3, 0.1, 0.02);
+        let front = estrai_frontiera_pareto_sui_candidati(&[c1, c2, c3]);
+        let ids: Vec<FactId> = front.iter().map(|c| c.candidate_id).collect();
         assert!(ids.contains(&1));
         assert!(ids.contains(&3));
-        assert!(!ids.contains(&2), "il ramo dominato c2 deve essere scartato");
+        assert!(!ids.contains(&2), "il candidato dominato c2 deve essere scartato");
 
-        // Il collapse sui rami potati seleziona lo stesso vincitore dei rami completi.
-        let pruned_branches: Vec<WalkBranch> = front.into_iter().map(|c| c.branch).collect();
-        let winner_pruned = resolver.collapse(&pruned_branches).expect("deve collassare");
-        let winner_full = resolver
-            .collapse(&costs.iter().map(|c| c.branch.clone()).collect::<Vec<_>>())
-            .expect("deve collassare");
-
-        assert_eq!(winner_pruned.candidate_id, winner_full.candidate_id);
-        assert_eq!(winner_pruned.candidate_id, Some(1), "il cammino più economico vince");
+        // Il vincitore del collapse resta c1: il Pareto post-collapse è una
+        // selezione successiva, non una mutilazione della funzione d'onda.
+        assert_eq!(winner.candidate_id, Some(1));
     }
 }

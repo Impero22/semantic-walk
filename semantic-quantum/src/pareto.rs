@@ -19,6 +19,7 @@
 //!   sommando le ampiezze sui nodi condivisi (interferenza costruttiva).
 
 use crate::WalkBranch;
+use semantic_combiner::FactId;
 
 /// Vettore dei costi scomposti dei tre canali per un ramo.
 #[derive(Debug, Clone)]
@@ -176,6 +177,89 @@ pub fn estrai_frontiera_pareto_adattivo(
     }
 }
 
+// ============================================================
+// Pruning post-collapse sui candidati (da Camillo, 22/09/26).
+//
+// Il pruning branch-level *prima* del collapse è incompatibile con l'obiettivo
+// del collapse, che è l'interferenza costruttiva Ψ(c) = Σ exp(-S_r/κ): ogni
+// ramo contribuisce all'ampiezza del proprio candidato, e scartare un ramo
+// "dominato" mutila la funzione d'onda prima dell'integrazione.
+//
+// Il pruning di Pareto ha quindi un ruolo legittimo SOLO **dopo** l'aggregazione,
+// sui candidati collassati: ogni candidato ha un vettore di costo aggregato
+// (es. la media dei costi dei suoi rami, o il costo del suo rappresentante),
+// e il Pareto seleziona tra i candidati dominati quelli da scartare — senza
+// alterare l'esito del collapse, che è già avvenuto.
+//
+// ## Distinzione fondamentale
+// - **Branch-level (PRIMA del collapse)**: VIETATO. Mutila la funzione d'onda.
+// - **Candidate-level (DOPO il collapse)**: LEGITTIMO. Selezione tra candidati
+//   già collassati, ortogonale all'argmax del collapse.
+// ============================================================
+
+/// Vettore dei costi aggregati per un candidato (post-collapse).
+#[derive(Debug, Clone)]
+pub struct CandidateCostVector {
+    pub candidate_id: FactId,
+    /// Costo inerziale aggregato (es. media dei rami del candidato).
+    pub s_inertial: f32,
+    /// Costo geometrico aggregato.
+    pub s_geometric: f32,
+    /// Costo colbert aggregato.
+    pub s_colbert: f32,
+}
+
+impl CandidateCostVector {
+    pub fn new(
+        candidate_id: FactId,
+        s_inertial: f32,
+        s_geometric: f32,
+        s_colbert: f32,
+    ) -> Self {
+        Self {
+            candidate_id,
+            s_inertial,
+            s_geometric,
+            s_colbert,
+        }
+    }
+
+    /// Ritorna `true` se `self` domina in senso di Pareto `other`.
+    pub fn dominates(&self, other: &Self) -> bool {
+        let i_le = self.s_inertial <= other.s_inertial;
+        let g_le = self.s_geometric <= other.s_geometric;
+        let c_le = self.s_colbert <= other.s_colbert;
+        let strict_better = self.s_inertial < other.s_inertial
+            || self.s_geometric < other.s_geometric
+            || self.s_colbert < other.s_colbert;
+        i_le && g_le && c_le && strict_better
+    }
+}
+
+/// Filtra i candidati collassati mantenendo la frontiera di Pareto.
+///
+/// Da applicare **dopo** il collapse (vedi nota di testa del modulo). Opera sui
+/// costi aggregati per candidato, non sui rami: non tocca l'interferenza
+/// costruttiva già computata dal [`crate::QuantumResolver::collapse`].
+pub fn estrai_frontiera_pareto_sui_candidati(
+    candidates: &[CandidateCostVector],
+) -> Vec<CandidateCostVector> {
+    let mut pareto_front = Vec::new();
+    for (i, candidate) in candidates.iter().enumerate() {
+        let mut is_dominated = false;
+        for (j, other) in candidates.iter().enumerate() {
+            if i != j && other.dominates(candidate) {
+                is_dominated = true;
+                break;
+            }
+        }
+        if !is_dominated {
+            pareto_front.push(candidate.clone());
+        }
+    }
+    pareto_front
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +272,9 @@ mod tests {
             candidate_id: Some(id),
             action: s_i + s_g + s_c,
             amplitude: 0.0,
+            s_inertial: s_i,
+            s_geometric: s_g,
+            s_colbert: s_c,
         };
         BranchCostVector::new(branch, s_i, s_g, s_c)
     }
