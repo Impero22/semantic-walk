@@ -423,3 +423,22 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **Commit `5319a6b`** su `main` (locale). Il push attende il token di Camillo, come gli altri.
 
 **Prossimo passo**: completare le asserzioni `todo!()` quando il frames mode del server sarà deployato e cattureremo la fixture reale; poi l'adattatore JSON→RawWalk/RawColbertTrajectory. Documento: `semantic-walk/tests/scheletro_3_livelli.rs`.
+
+## 23/09/26 00:01 — Scheletro test 3 livelli: completate le asserzioni verificabili per costruzione
+
+**Idee di partenza**: lo scheletro committato con `5319a6b` aveva tre test che fallivano tutti con `todo!()` al punto critico. Due di quei punti critici (Level 1 e Level 2) erano in realtà **verificabili per costruzione**, senza attendere il frames mode del server: il parsing JSON conserva l'array `0..N-1` per definizione di `colbert_to_trajectory`, e il filtro d'igiene scarta i token speciali preservando l'ordine posizionale per definizione di `walk_filtra_igiene`. Solo il Level 3 richiede la fixture reale.
+
+**Obiettivi**: (1) completare le asserzioni verificabili ORA, senza toccare la suite reale; (2) lasciare come `todo!()` solo ciò che dipende davvero dal payload reale del server; (3) confermare che la suite reale resta verde.
+
+**Metodi utilizzati**: lettura delle API (`CrispTrajectory::len`, `OrderedSparseSequence::num_positions`/`tokens_at`), completamento delle asserzioni nei test Level 1 e Level 2, esecuzione dello scheletro e della suite completa.
+
+**Risultati attesi**: Level 1 e Level 2 verdi; Level 3 ancora rosso sul `todo!()` che attende la fixture reale; suite reale intatta.
+
+**Risultati ottenuti**:
+- **Level 1** verde: `traj.len() == n_tokens` — la biiezione del parsing JSON è asserita.
+- **Level 2** verde: `seq.num_positions() == 5` e i token sopravvissuti sono esattamente `[211, 27294, 188, 54, 24022]` nell'ordine del testo — il filtro scarta solo gli speciali (0 e 2) senza riordinare.
+- **Level 3** resta rosso sul `todo!()`: richiede la fixture reale dal frames mode del server.
+- Suite reale intatta: 61 unit + 8 integration + 36 quantum + 10 combiner verdi.
+- **Commit `e893dc0`** su `main` (locale). Push attende il token di Camillo.
+
+**Prossimo passo**: catturare la fixture reale quando il frames mode del server sarà deployato, completare il Level 3, poi l'adattatore JSON→RawWalk/RawColbertTrajectory.
