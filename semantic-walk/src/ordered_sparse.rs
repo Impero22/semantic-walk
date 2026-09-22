@@ -227,30 +227,64 @@ impl OrderedSparseSequence {
     /// Usato per modulare la banda di Sakoe-Chiba: concordanza alta stringe
     /// la finestra, concordanza bassa la allarga.
     pub fn positional_jaccard(&self, other: &Self, i: usize) -> f32 {
-        let a = self.tokens_at(i);
-        let b = other.tokens_at(i);
-        if a.is_empty() && b.is_empty() {
+        let ta = self.tokens_at(i);
+        let tb = other.tokens_at(i);
+        let wa = self.weights_at(i);
+        let wb = other.weights_at(i);
+        // Caso genuinamente vuoto (mai prodotto da `from_frames`, che rifiuta
+        // posizioni vuote): conserva il comportamento storico (1.0). Un frame
+        // con soli soppressi NON è vuoto qui — viene trattato come privo di
+        // presenza (Jaccard 0), coerentemente con la firma del guardiano.
+        if ta.is_empty() && tb.is_empty() {
             return 1.0;
         }
-        // Two-pointer merge su frame ordinati: intersezione O(n+m) senza
-        // allocazioni temporanee (niente HashSet/Vec). I token sono ordinati
-        // per costruzione in `from_frames`.
+        // Two-pointer merge su frame ordinati, contando SOLO i token emessi
+        // (w > 0). I soppressi non sono "presenza" per il Jaccard posizionale:
+        // la medesima definizione di presenza della firma del pruning O(1).
+        // O(n+m) senza allocazioni temporanee (niente HashSet/Vec). I token
+        // sono ordinati per costruzione in `from_frames`.
         let (mut pa, mut pb) = (0usize, 0usize);
         let mut inter = 0usize;
-        while pa < a.len() && pb < b.len() {
-            if a[pa] == b[pb] {
+        let mut union = 0usize;
+        while pa < ta.len() && pb < tb.len() {
+            // Salta i soppressi su entrambi i lati.
+            if wa[pa] <= 0.0 {
+                pa += 1;
+                continue;
+            }
+            if wb[pb] <= 0.0 {
+                pb += 1;
+                continue;
+            }
+            // Entrambi i token correnti sono emessi.
+            union += 1;
+            if ta[pa] == tb[pb] {
                 inter += 1;
                 pa += 1;
                 pb += 1;
-            } else if a[pa] < b[pb] {
+            } else if ta[pa] < tb[pb] {
                 pa += 1;
             } else {
                 pb += 1;
             }
         }
-        let union = a.len() + b.len() - inter;
+        // Conta i token emessi residui (non consumati dal merge).
+        while pa < ta.len() {
+            if wa[pa] > 0.0 {
+                union += 1;
+            }
+            pa += 1;
+        }
+        while pb < tb.len() {
+            if wb[pb] > 0.0 {
+                union += 1;
+            }
+            pb += 1;
+        }
         if union == 0 {
-            1.0
+            // Entrambi i frame hanno SOLO soppressi: nessuna presenza,
+            // concordanza nulla (opzione 1 — banda massima, penalità piena).
+            0.0
         } else {
             inter as f32 / union as f32
         }
@@ -475,5 +509,71 @@ mod tests {
         // La firma di a (tutto soppresso) deve essere vuota: 0 bit.
         let sig_a = a.global_signature[0].count_ones() + a.global_signature[1].count_ones();
         assert_eq!(sig_a, 0);
+    }
+
+    #[test]
+    fn test_soppresso_condiviso_non_conta_come_concordanza() {
+        // Opzione 2 confermata: i soppressi (w <= 0) sono esclusi dal Jaccard
+        // posizionale, coerente con la firma del guardiano (presenza = w > 0).
+        //
+        // a: {1(soppresso), 2(emesso)}  b: {1(soppresso), 2(emesso)}
+        // Il soppresso condiviso (1) NON è concordanza. Solo {2} conta:
+        // Jaccard = 1/1 = 1.0 (non 1.0 per i due token, né 1/3 con il soppresso).
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, 0.3)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, 0.3)],
+        ]))
+        .unwrap();
+        assert!((a.positional_jaccard(&b, 0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_soppresso_condiviso_con_emessi_diversi() {
+        // a: {1(soppresso), 2(emesso)}  b: {1(soppresso), 3(emesso)}
+        // Il soppresso condiviso (1) non conta; gli emessi {2} e {3} sono
+        // disgiunti => Jaccard = 0.0 (non 1/3 che includerebbe il soppresso).
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, 0.3)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (3, 0.7)],
+        ]))
+        .unwrap();
+        assert!((a.positional_jaccard(&b, 0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_frame_solo_soppressi_jaccard_zero() {
+        // Opzione 1: un frame con SOLI soppressi non porta informazione di
+        // concordanza => Jaccard 0.0 (banda massima, penalità piena).
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, -0.3)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, -0.5), (2, -0.3)],
+        ]))
+        .unwrap();
+        assert!((a.positional_jaccard(&b, 0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_soppresso_vs_emesso_stesso_token_non_conta() {
+        // a: {7(soppresso)}  b: {7(emesso)}
+        // Il soppresso di a non è presenza; in b il token è emesso. Non c'è
+        // concordanza di token emessi => Jaccard 0.0.
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(7, -0.2)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(7, 0.9)],
+        ]))
+        .unwrap();
+        assert!((a.positional_jaccard(&b, 0)).abs() < 1e-6);
     }
 }
