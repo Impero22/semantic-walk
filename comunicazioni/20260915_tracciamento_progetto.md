@@ -525,3 +525,9 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Conferma di Camillo (20:43)**: "intendevo la soluzione strutturale già committata con 1babfd1... Il codice è a posto. Restiamo in attesa del deploy su .18/.5 per il Level 3."
 
 **Prossimo passo**: quando il frames mode del server sarà deployato su .18/.5, catturare la fixture reale, completare il Level 3, chiudere l'anello end-to-end su dati veri.
+
+## 24/09/26 00:24 — REGOLA OPERATIVA: embedder .18 per gli esperimenti
+
+**Direttiva di Federico**: per gli esperimenti di semantic-geo (e in generale del lavoro di ricerca) usare l'embedder della **.18 (Altair)**, porta 8091. L'embedder della **.5 (Nebula)** resta **esclusiva del framework** — non va usata per i nostri esperimenti.
+
+**Nota**: i test dal vivo di stasera (23/09) erano stati fatti su entrambe le macchine (.18 e .5) per confermare la biiezione; da ora il riferimento unico per il lato ricerca è la .18.
