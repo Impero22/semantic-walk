@@ -499,3 +499,15 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - NOTA AGGIUNTIVA (sezione "Note for Camillo"): `from_frames` non ordina i frame per token id, cosa che il two-pointer di `positional_jaccard` assume — fix crate-side già previsto (ordino per token id in from_frames).
 
 **Risultati attesi / prossimo passo**: la soluzione è l'opzione (a) — filtrare la traiettoria densa in modo coerente con il walk, MA distinguendo i piani: il guardian esclude i suppressed (status 0 only), il DTW li conserva. Da portare a Camillo con questa precisione (il contratto server è intoccabile e coerente). Aggiornare `walk_filtra_igiene` e `colbert_to_trajectory` affinché usino lo stesso criterio di filtro, e allineare il test Level 2.
+
+## 23/09/26 18:05 — Ricalibratura formato frames ordered-sparse (con Camillo)
+
+**Idee di partenza**: Camillo aveva proposto una struttura per la risposta `frames` dell'endpoint ordered-sparse che non combaciava col formato reale del server (PER_TOKEN_ENDPOINTS.md).
+
+**Obiettivi**: allineare `FrameEntry`/`WalkFramesResultJson` al formato reale: `status[]` array parallelo, posizione come indice dell'array, frame generalizzato `Vec<FrameEntry>`.
+
+**Metodi utilizzati**: verifica del contratto server, ricalibratura struct, `walk_frames_json_to_raw` che appiattisce in `RawWalk` con biiezione posizionale (`pos = i`, `st = status[i]`).
+
+**Risultati attesi**: struttura allineata al server, generalità per head multi-token.
+
+**Risultati ottenuti**: 5 nuovi test (66 unit totali), suite a 87 verdi. Commit 1babfd1. Conferma di Camillo sulla logica (padding già scartato dal server, soppressi come frame a peso ≤ 0 = verdetto). Allineamento contratto/crate completo.
