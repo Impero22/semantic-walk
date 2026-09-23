@@ -20,7 +20,7 @@ fn main() {
 
     // Candidato B: 10 rami buoni (0.2, 0.2, 0.2), tutti dominati dal ramo di A
     let mut b_rami = Vec::new();
-    for i in 0..10 {
+    for _i in 0..10 {
         b_rami.push(BranchCostVector::new(
             WalkBranch::new(BranchType::Inertial, 1, 0.2, 2.0),
             0.2, 0.2, 0.2));

@@ -9,10 +9,13 @@
 //!   righe ColBERT.
 //! * **Level 2 — Filtro d'igiene**: l'azzeramento del peso sui token d'igiene
 //!   (`st == 0 && id >= 4`) lascia intatta la posizione assoluta `i`, in modo
-//!   che il DTW mappi la riga `i` corretta.
+//!   che il DTW mappi la riga `i` corretta. La **terza via** conserva la
+//!   topologia posizionale: tutte le `N` posizioni restano, i non significativi
+//!   hanno peso `0.0` (verdetto, non assenza).
 //! * **Level 3 — Fixture reale**: la sequenza di 7 token ("gatto dorme" con
-//!   `<s>` e `</s>`) deve dimostrare che l'unica eliminazione ammessa alla
-//!   fonte è il padding finale `<pad>`.
+//!   `<s>` e `</s>`) deve dimostrare che la biiezione `7 == 7` regge: ogni
+//!   riga ColBERT corrisponde al passo `i` del walk, con gli speciali a peso
+//!   zero.
 //!
 //! I test sono **scheletri espliciti**: le asserzioni critiche sono marcate
 //! `todo!()` e vanno completate quando il frames mode del server sarà
@@ -63,10 +66,15 @@ fn level1_parsing_json_preserva_ordine_righe() {
     verifica_coerenza_posizionale(&walk, n_tokens)
         .expect("N passi del walk == N righe ColBERT");
 
-    // Asserzione critica da completare quando il server espone il frames mode:
-    // la riga `i` deserializzata deve corrispondere al token `i` dichiarato
-    // dal payload, senza che il parsing ne alteri l'ordine né la lunghezza.
-    todo!("con la fixture reale: asserire che la riga i della matrice corrisponda al token i dichiarato dal payload");
+    // La riga `i` deserializzata corrisponde al token `i` dichiarato dal
+    // payload: `colbert_to_trajectory` conserva l'array `0..N-1` senza riordini
+    // né dedup. Lo verifichiamo sugli embedding, costruiti deterministicamente
+    // come `embeddings[i][d] = i*10 + d` — la biiezione è provata se ogni riga
+    // della traiettoria coincide con quella originale.
+    for i in 0..n_tokens {
+        let atteso: Vec<f64> = (0..dim).map(|d| (i * 10 + d) as f64).collect();
+        assert_eq!(traj.embeddings[i], atteso, "riga {i} della matrice preservata (token {i})");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,12 +84,15 @@ fn level1_parsing_json_preserva_ordine_righe() {
 /// Il filtro d'igiene (`st == 0 && id >= 4`) azzera il *peso* dei token non
 /// significativi ma non deve toccare la *posizione* assoluta `i`: il DTW deve
 /// continuare a mappare la riga `i` corretta della matrice ColBERT.
+///
+/// **Terza via**: la topologia posizionale è conservata. Tutte le `N` posizioni
+/// restano nel buffer (biiezione `N == N` col canale denso); i token non
+/// significativi hanno peso `0.0`. Il DTW li esclude dalla *presenza* ma li
+/// conta per l'*allineamento*.
 #[test]
 fn level2_filtro_igiene_preserva_posizione_assoluta() {
-    // Walk con 7 passi, di cui alcuni da gittare (soppressi st==1, speciali
-    // id<4). Il filtro deve scartarli dal buffer ma la posizione dei
-    // sopravvissuti nel cammino deve restare ancorata alla loro posizione
-    // assoluta nel testo.
+    // Walk con 7 passi, di cui due speciali (id 0 e id 2). Il filtro d'igiene
+    // azzera il peso degli speciali ma conserva la posizione assoluta.
     let raw = RawWalk {
         sequence_id: "fixture_l2".into(),
         ids: vec![0, 211, 27294, 188, 54, 24022, 2], // 0 e 2 speciali
@@ -93,26 +104,51 @@ fn level2_filtro_igiene_preserva_posizione_assoluta() {
     let seq = semantic_walk::parse::walk_to_sequence(&raw)
         .expect("walk ben formato produce una sequenza");
 
-    // I token speciali (0 e 2) devono essere esclusi dal buffer: il cammino
-    // deve avere 5 passi significativi (211, 27294, 188, 54, 24022).
-    // Questa parte è verificabile ORA, per costruzione del filtro d'igiene,
-    // senza attendere il frames mode del server.
-    assert_eq!(seq.num_positions(), 5, "i 5 token significativi sopravvivono al filtro");
+    // Terza via: la topologia è conservata — 7 posizioni totali (biiezione
+    // col canale denso), non 5. Gli speciali (0 e 2) restano a peso 0.0.
+    assert_eq!(seq.num_positions(), 7, "tutte le posizioni conservate (biiezione 7 == 7)");
 
-    // L'ordine posizionale dei sopravvissuti è quello del testo: il filtro
-    // non riordina, scarta soltanto. Ogni posizione ha un solo token (il walk
-    // reale ha una voce per occorrenza), quindi tokens_at(i) è un singoletto.
+    // I 5 token significativi mantengono il loro peso e la loro posizione
+    // assoluta. Gli speciali hanno peso 0.0 ma la posizione resta.
     let attesi: Vec<u32> = vec![211, 27294, 188, 54, 24022];
-    for (i, &id) in attesi.iter().enumerate() {
-        assert_eq!(seq.tokens_at(i), &[id], "token alla posizione {i}");
+    let pesi: Vec<f32> = vec![0.15, 0.26, 0.19, 0.23, 0.18];
+    for (i, (&id, &peso)) in attesi.iter().zip(pesi.iter()).enumerate() {
+        assert_eq!(seq.tokens_at(i + 1), &[id], "token alla posizione {}", i + 1);
+        assert_eq!(seq.weights_at(i + 1), &[peso], "peso alla posizione {}", i + 1);
     }
 
-    // Asserzione critica rimandata alla fixture reale: il frames mode del
-    // server deve garantire che la posizione assoluta `i` nel testo sia
-    // preservata anche dopo il filtro, così che il DTW mappi la riga ColBERT
-    // corretta. La biiezione è già coperta da `verifica_coerenza_posizionale`
-    // a monte; qui resta l'ancora finché non catturiamo il payload reale.
-    todo!("con la fixture reale: asserire che la riga i della matrice ColBERT corrisponda al token i del cammino filtrato");
+    // Gli speciali sono presenti come posizioni a peso zero (verdetto, non
+    // assenza): <s> in posizione 0, </s> in posizione 6.
+    assert_eq!(seq.tokens_at(0), &[0], "token speciale <s> in posizione 0");
+    assert_eq!(seq.weights_at(0), &[0.0], "<s> a peso zero");
+    assert_eq!(seq.tokens_at(6), &[2], "token speciale </s> in posizione 6");
+    assert_eq!(seq.weights_at(6), &[0.0], "</s> a peso zero");
+
+    // Biiezione posizionale col canale denso: la posizione `i` del walk
+    // corrisponde alla riga `i` della matrice ColBERT. Con la terza via la
+    // topologia è conservata su entrambi i lati (7 == 7), quindi il DTW mappa
+    // ogni posizione del walk alla riga ColBERT di pari indice — nessun
+    // slittamento indotto dal filtro. La corrispondenza è verificabile ORA per
+    // costruzione: `walk_to_sequence` non comprime, `colbert_to_trajectory`
+    // non riordina, e `verifica_coerenza_posizionale` ha già asserito 7 == 7.
+    // La biiezione si esprime nel fatto che il numero di posizioni della
+    // sequenza coincida con le righe della traiettoria a cui il DTW si aggancia.
+    let colbert = RawColbertTrajectory {
+        sequence_id: "fixture_l2".into(),
+        tokens: vec![
+            "<s>".into(), "gatto".into(), "dorme".into(), "sul".into(),
+            "divano".into(), "e".into(), "</s>".into(),
+        ],
+        embeddings: (0..7)
+            .map(|i| vec![(i * 10 + 0) as f64, (i * 10 + 1) as f64, (i * 10 + 2) as f64, (i * 10 + 3) as f64])
+            .collect(),
+    };
+    let traj = colbert_to_trajectory(&colbert).expect("traiettoria ben formata");
+
+    // La posizione `i` del walk (7 posizioni, speciali inclusi) corrisponde
+    // alla riga `i` della traiettoria (7 righe): la biiezione 7 == 7 regge
+    // fino al DTW, che aggancia la posizione i-esima alla riga i-esima.
+    assert_eq!(seq.num_positions(), traj.len(), "posizioni del walk == righe ColBERT (7 == 7)");
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +156,9 @@ fn level2_filtro_igiene_preserva_posizione_assoluta() {
 // ---------------------------------------------------------------------------
 
 /// La fixture reale catturata dal server ("gatto dorme" con `<s>` e `</s>`)
-/// deve dimostrare che l'unica eliminazione ammessa alla fonte è il padding
-/// finale `<pad>`: tutti i token significativi restano, e la sequenza
-/// ordinata li conserva nell'ordine esatto.
+/// deve dimostrare che la biiezione `7 == 7` regge: ogni riga ColBERT
+/// corrisponde al passo `i` del walk, e gli speciali restano come posizioni a
+/// peso zero (verdetto, non assenza).
 #[test]
 fn level3_fixture_reale_solo_padding_finale_eliminato() {
     // Dato reale catturato: 7 token con <s> (0) e </s> (2) ai bordi.
@@ -144,11 +180,22 @@ fn level3_fixture_reale_solo_padding_finale_eliminato() {
     let seq = semantic_walk::parse::walk_to_sequence(&raw)
         .expect("walk reale produce una sequenza");
 
-    // Dopo il filtro d'igiene restano i 5 token significativi, nell'ordine
-    // esatto del testo: gatto(211) dorme(27294) sul(188) divano(54) e(24022).
-    // TODO: asserire che la sequenza conserva esattamente questi 5 token
-    // nell'ordine posizionale, e che l'unica eliminazione ammessa alla fonte
-    // è il padding finale <pad> (non presente in questo frame).
-    let _ = &seq;
-    todo!("asserire che i 5 token significativi sono 211,27294,188,54,24022 nell'ordine esatto");
+    // Terza via: la biiezione 7 == 7 regge. Tutte le 7 posizioni restano;
+    // gli speciali <s> (0) e </s> (2) hanno peso 0.0, i 5 significativi
+    // (211, 27294, 188, 54, 24022) mantengono il loro peso e l'ordine esatto.
+    assert_eq!(seq.num_positions(), 7, "biiezione 7 == 7 col canale denso");
+
+    // Speciali a peso zero (verdetto, non assenza).
+    assert_eq!(seq.tokens_at(0), &[0], "<s> in posizione 0");
+    assert_eq!(seq.weights_at(0), &[0.0], "<s> a peso zero");
+    assert_eq!(seq.tokens_at(6), &[2], "</s> in posizione 6");
+    assert_eq!(seq.weights_at(6), &[0.0], "</s> a peso zero");
+
+    // I 5 token significativi nell'ordine esatto del testo, con i loro pesi.
+    let attesi: Vec<u32> = vec![211, 27294, 188, 54, 24022];
+    let pesi: Vec<f32> = vec![0.145917, 0.261761, 0.192312, 0.228725, 0.182965];
+    for (i, (&id, &peso)) in attesi.iter().zip(pesi.iter()).enumerate() {
+        assert_eq!(seq.tokens_at(i + 1), &[id], "token significativo in posizione {}", i + 1);
+        assert_eq!(seq.weights_at(i + 1), &[peso], "peso in posizione {}", i + 1);
+    }
 }

@@ -154,31 +154,28 @@ pub fn colbert_to_trajectory(raw: &RawColbertTrajectory) -> Result<CrispTrajecto
 /// Tiene i passi con `st == 0` (emesso) e `id >= 4` (non speciale), come da
 /// documento del Coder. I pesi sono i `w` originali, **firmati**: un `w ≤ 0`
 /// è un verdetto di soppressione, non rumore da gittare.
-fn walk_filtra_igiene(raw: &RawWalk) -> Vec<(TokenId, WalkWeight)> {
-    raw.ids
-        .iter()
-        .zip(raw.w.iter())
-        .zip(raw.st.iter())
-        .filter_map(|((&id, &w), &st)| {
-            // Filtro d'igiene: emesso (st==0) e non speciale (id>=4).
-            if st == 0 && id >= 4 {
-                Some((id, w))
-            } else {
-                None
-            }
-        })
-        .collect()
+/// `true` se un passo del `walk` è significativo: emesso (`st == 0`) e non
+/// speciale (`id >= 4`).
+fn walk_passo_significativo(st: u8, id: TokenId) -> bool {
+    st == 0 && id >= 4
 }
 
 /// Costruisce una `OrderedSparseSequence` dal `walk` grezzo di un fatto.
 ///
-/// Applica il filtro d'igiene (`st == 0` e `id >= 4`), verifica l'allineamento
-/// degli array e la stretta crescenza di `pos`, poi delega la costruzione a
-/// `OrderedSparseSequence::from_frames`.
+/// **Terza via — topologia posizionale conservata.** Il `walk` e la matrice
+/// ColBERT per-token condividono la stessa traiettoria: ogni riga della matrice
+/// corrisponde al passo `i` del `walk` (biiezione `0..N-1`). Il filtro d'igiene
+/// (`st == 0` e `id >= 4`) **non comprime** la sequenza: i passi non
+/// significativi restano come posizioni a peso `0.0`, così la topologia
+/// posizionale resta allineata al canale denso.
 ///
-/// Il walk reale è già una sequenza posizionale: ogni passo emesso diventa una
-/// posizione della sequenza ordinata. Il filtro d'igiene è la selezione dei
-/// passi che contano davvero.
+/// Un passo non significativo è un **verdetto**, non un'assenza: il modello ha
+/// guardato il token e ha dichiarato che non doveva contare. Il DTW lo vede con
+/// peso firmato `0.0` (che `positional_jaccard` esclude dalla presenza ma
+/// conserva per l'allineamento), senza che gli indici slittino.
+///
+/// Fallisce solo se il `walk` è vuoto o se **nessun** passo è significativo
+/// (una traiettoria interamente a peso zero è un dato anomalo, non un cammino).
 pub fn walk_to_sequence(raw: &RawWalk) -> Result<OrderedSparseSequence, ParseError> {
     // Allineamento: quattro array della stessa lunghezza.
     let t = raw.ids.len();
@@ -193,19 +190,26 @@ pub fn walk_to_sequence(raw: &RawWalk) -> Result<OrderedSparseSequence, ParseErr
         }
     }
 
-    // Filtro d'igiene: solo i passi emessi e non speciali contano.
-    let significativi = walk_filtra_igiene(raw);
-    if significativi.is_empty() {
-        return Err(ParseError::WalkVuotoDopoFiltro);
+    // Costruisce un frame per OGNI passo (biiezione `0..N-1` col canale denso).
+    // I passi non significativi restano con peso 0.0: la posizione c'è, ma è
+    // un verdetto di non-presenza, non un buco nella traiettoria.
+    let mut frames = Vec::with_capacity(t);
+    let mut significativi = 0usize;
+    for i in 0..t {
+        let (id, w, st) = (raw.ids[i], raw.w[i], raw.st[i]);
+        let peso = if walk_passo_significativo(st, id) {
+            significativi += 1;
+            w
+        } else {
+            0.0
+        };
+        frames.push(vec![(id, peso)]);
     }
 
-    // Ogni passo emesso è una posizione della sequenza ordinata. Il walk reale
-    // ha un solo token per posizione (una voce per occorrenza), quindi ogni
-    // frame ha esattamente un elemento.
-    let frames: Vec<Vec<(TokenId, WalkWeight)>> = significativi
-        .into_iter()
-        .map(|(id, w)| vec![(id, w)])
-        .collect();
+    // Nessun passo significativo: il walk è un dato anomalo (non un cammino).
+    if significativi == 0 {
+        return Err(ParseError::WalkVuotoDopoFiltro);
+    }
 
     OrderedSparseSequence::from_frames(&frames)
         .map_err(|_| ParseError::WalkVuotoDopoFiltro)
@@ -325,8 +329,11 @@ mod tests {
     }
 
     #[test]
-    fn walk_filtro_igiene_scarta_soppressi_e_speciali() {
+    fn walk_filtro_igiene_conserva_topologia_e_azzera_i_filtrati() {
         // Passi: id 0 (speciale, st=0), id 5 (soppresso, st=1), id 6 (emesso).
+        // Terza via: la topologia posizionale è conservata — tutte e 3 le
+        // posizioni restano, ma id 0 e id 5 hanno peso 0.0 (verdetto, non
+        // assenza). Solo id 6 mantiene il suo peso.
         let raw = RawWalk {
             sequence_id: "fatto_test".into(),
             ids: vec![0, 5, 6],
@@ -335,15 +342,21 @@ mod tests {
             st: vec![0, 1, 0],
         };
         let seq = walk_to_sequence(&raw).unwrap();
-        // Solo il passo id 6 (emesso e non speciale) sopravvive.
-        assert_eq!(seq.num_positions(), 1);
-        assert_eq!(seq.tokens_at(0), &[6]);
-        assert_eq!(seq.weights_at(0), &[0.7]);
+        // Tutte le posizioni conservate (biiezione 3 == 3 col canale denso).
+        assert_eq!(seq.num_positions(), 3);
+        // id 0 (speciale) e id 5 (soppresso): peso azzerato.
+        assert_eq!(seq.tokens_at(0), &[0]);
+        assert_eq!(seq.weights_at(0), &[0.0]);
+        assert_eq!(seq.tokens_at(1), &[5]);
+        assert_eq!(seq.weights_at(1), &[0.0]);
+        // id 6 (emesso, non speciale): mantiene il peso.
+        assert_eq!(seq.tokens_at(2), &[6]);
+        assert_eq!(seq.weights_at(2), &[0.7]);
     }
 
     #[test]
-    fn walk_filtro_igiene_gitta_padding() {
-        // Il padding (st==2) non conta, anche con id >= 4.
+    fn walk_filtro_igiene_azzera_padding_conservando_posizione() {
+        // Il padding (st==2) non conta: la posizione resta ma il peso è 0.0.
         let raw = RawWalk {
             sequence_id: "fatto_test".into(),
             ids: vec![4, 5, 6],
@@ -352,10 +365,16 @@ mod tests {
             st: vec![0, 2, 0],
         };
         let seq = walk_to_sequence(&raw).unwrap();
-        // Il passo con st==2 (padding) viene gittato; restano 4 e 6.
-        assert_eq!(seq.num_positions(), 2);
+        // 3 posizioni totali conservate (biiezione col canale denso).
+        assert_eq!(seq.num_positions(), 3);
+        // id 4 e 6 emessi: pesi intatti.
         assert_eq!(seq.tokens_at(0), &[4]);
-        assert_eq!(seq.tokens_at(1), &[6]);
+        assert_eq!(seq.weights_at(0), &[0.1]);
+        assert_eq!(seq.tokens_at(2), &[6]);
+        assert_eq!(seq.weights_at(2), &[0.3]);
+        // id 5 (padding, st==2): posizione presente, peso azzerato.
+        assert_eq!(seq.tokens_at(1), &[5]);
+        assert_eq!(seq.weights_at(1), &[0.0]);
     }
 
     #[test]

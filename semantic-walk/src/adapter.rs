@@ -98,6 +98,51 @@ pub struct WalkResultJson {
     pub st: Vec<u8>,
 }
 
+/// Un singolo token dentro un frame (forma `frames` dell'endpoint
+/// ordered-sparse).
+///
+/// Il server emette ogni frame come lista di `{token, weight}`. Su BGE-M3
+/// (head scalare) ogni frame contiene esattamente un token; la struttura è
+/// generalizzata per un futuro head multi-token (es. SPLADE).
+#[derive(Debug, Clone, Deserialize)]
+pub struct FrameEntry {
+    /// Token id XLM-R toccato in quel passo.
+    pub token: TokenId,
+    /// Peso firmato di quell'occorrenza (`w ≤ 0` è un verdetto).
+    pub weight: WalkWeight,
+}
+
+/// Risultato raggruppato per frame (forma `frames` dell'endpoint
+/// ordered-sparse).
+///
+/// Mappa la risposta di `POST /ordered-sparse?format=frames`:
+///
+/// ```jsonc
+/// { "results": [{
+///   "frames": [ [{"token":0,"weight":0.135}], [{"token":333,"weight":0.089}], ... ],
+///   "n": 12,
+///   "status": [0,0,0,0,0,0,0,0,0,1,0,0]
+/// }]}
+/// ```
+///
+/// La posizione **è l'indice** dell'array `frames` (array posizionale), non un
+/// campo esplicito. `status[]` è un array parallelo: uno status per frame.
+/// Il padding (`status 2`) è già scartato dal server; i soppressi
+/// (`status 1`) restano come frame a peso `≤ 0` — un verdetto, non
+/// un'assenza.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WalkFramesResultJson {
+    /// Il numero di frame (lunghezza di `frames` e di `status`).
+    #[serde(rename = "n")]
+    pub count: usize,
+    /// Un frame per posizione, in ordine di testo. `frames[i]` È la posizione
+    /// `i`; ogni frame è la lista dei token toccati in quella posizione.
+    pub frames: Vec<Vec<FrameEntry>>,
+    /// Stato di ogni frame: `0` emesso · `1` soppresso · `2` padding.
+    /// Parallelo a `frames[]` (uno status per frame).
+    pub status: Vec<u8>,
+}
+
 /// L'errore dell'adattatore: un dato che non rispetta il formato del server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdapterError {
@@ -195,6 +240,56 @@ pub fn walk_json_to_raw(
         w: result.w.clone(),
         pos: result.pos.clone(),
         st: result.st.clone(),
+    })
+}
+
+/// Costruisce una `RawWalk` dalla risposta JSON `frames` del server.
+///
+/// Estrae il primo risultato dell'array `results` e appiattisce i frame in
+/// `RawWalk` mantenendo la biiezione posizionale: per ogni frame `i` assegna
+/// `pos = i` a tutti i token del frame e `st = status[i]`. Verifica che il
+/// conteggio dichiarato (`n`) coincida con la lunghezza effettiva di `frames`
+/// e `status`. L'allineamento e la stretta crescenza di `pos` sono demandati a
+/// `parse.rs` (`walk_to_sequence`).
+///
+/// Il caso attuale (un token per frame su BGE-M3) produce esattamente la flat
+/// che `walk_to_sequence` si aspetta; la generalità resta perché il frame è
+/// `Vec<FrameEntry>` (un futuro head multi-token appiattisce più token per
+/// posizione, conservando `pos = i` per ciascuno).
+pub fn walk_frames_json_to_raw(
+    response: &ServerResponse<WalkFramesResultJson>,
+    sequence_id: &str,
+) -> Result<RawWalk, AdapterError> {
+    let result = response
+        .results
+        .first()
+        .ok_or(AdapterError::RisultatoAssente)?;
+
+    if result.frames.len() != result.count || result.status.len() != result.count {
+        return Err(AdapterError::ConteggioIncoerente);
+    }
+
+    let mut ids = Vec::new();
+    let mut w = Vec::new();
+    let mut pos = Vec::new();
+    let mut st = Vec::new();
+
+    for (i, frame) in result.frames.iter().enumerate() {
+        let frame_status = result.status[i];
+        for entry in frame {
+            ids.push(entry.token);
+            w.push(entry.weight);
+            pos.push(i as u32);
+            st.push(frame_status);
+        }
+    }
+
+    Ok(RawWalk {
+        sequence_id: sequence_id.to_string(),
+        ids,
+        w,
+        pos,
+        st,
     })
 }
 
@@ -355,5 +450,100 @@ mod tests {
         let seq = crate::parse::walk_to_sequence(&raw_walk).unwrap();
         assert_eq!(traj.len(), 3);
         assert_eq!(seq.num_positions(), 3);
+    }
+
+    /// Un risultato walk JSON in forma `frames` ben formato.
+    ///
+    /// Ogni frame ha un token (caso BGE-M3), con un soppresso in posizione 1
+    /// per esercitare la propagazione di `status`.
+    fn walk_frames_json(t: usize) -> WalkFramesResultJson {
+        WalkFramesResultJson {
+            count: t,
+            frames: (0..t)
+                .map(|i| {
+                    vec![FrameEntry {
+                        token: (i + 4) as TokenId,
+                        weight: if i == 1 { 0.0 } else { 0.1 + i as f32 },
+                    }]
+                })
+                .collect(),
+            status: (0..t).map(|i| if i == 1 { 1 } else { 0 }).collect(),
+        }
+    }
+
+    #[test]
+    fn walk_frames_json_ben_formato_costruisce_raw() {
+        let resp = ServerResponse {
+            results: vec![walk_frames_json(4)],
+        };
+        let raw = walk_frames_json_to_raw(&resp, "fatto_test").unwrap();
+        assert_eq!(raw.sequence_id, "fatto_test");
+        assert_eq!(raw.ids.len(), 4);
+        assert_eq!(raw.w.len(), 4);
+        assert_eq!(raw.pos.len(), 4);
+        assert_eq!(raw.st.len(), 4);
+        // La posizione è l'indice del frame.
+        assert_eq!(raw.pos[3], 3);
+        // Lo status del frame è propagato a tutti i suoi token.
+        assert_eq!(raw.st[1], 1);
+        assert_eq!(raw.st[0], 0);
+        // Il peso del soppresso è conservato (verdetto, non assenza).
+        assert_eq!(raw.w[1], 0.0);
+    }
+
+    #[test]
+    fn walk_frames_json_risultato_assente_rifiutato() {
+        let resp: ServerResponse<WalkFramesResultJson> = ServerResponse { results: vec![] };
+        assert_eq!(
+            walk_frames_json_to_raw(&resp, "fatto_test"),
+            Err(AdapterError::RisultatoAssente)
+        );
+    }
+
+    #[test]
+    fn walk_frames_json_conteggio_incoerente_rifiutato() {
+        // n dichiara 4 ma frames ne ha 3.
+        let mut result = walk_frames_json(4);
+        result.frames.pop();
+        let resp = ServerResponse { results: vec![result] };
+        assert_eq!(
+            walk_frames_json_to_raw(&resp, "fatto_test"),
+            Err(AdapterError::ConteggioIncoerente)
+        );
+    }
+
+    #[test]
+    fn walk_frames_json_status_incoerente_rifiutato() {
+        // n dichiara 4 ma status ne ha 3 (array parallelo non allineato).
+        let mut result = walk_frames_json(4);
+        result.status.pop();
+        let resp = ServerResponse { results: vec![result] };
+        assert_eq!(
+            walk_frames_json_to_raw(&resp, "fatto_test"),
+            Err(AdapterError::ConteggioIncoerente)
+        );
+    }
+
+    #[test]
+    fn walk_frames_json_multi_token_per_frame_preserva_posizione() {
+        // Generalità: un frame con più token (futuro head SPLADE) appiattisce
+        // tutti i token sulla stessa posizione `i`, con lo stesso status.
+        let result = WalkFramesResultJson {
+            count: 2,
+            frames: vec![
+                vec![
+                    FrameEntry { token: 10, weight: 0.3 },
+                    FrameEntry { token: 11, weight: 0.2 },
+                ],
+                vec![FrameEntry { token: 12, weight: -0.1 }],
+            ],
+            status: vec![0, 1],
+        };
+        let resp = ServerResponse { results: vec![result] };
+        let raw = walk_frames_json_to_raw(&resp, "fatto_test").unwrap();
+        assert_eq!(raw.ids, vec![10, 11, 12]);
+        assert_eq!(raw.pos, vec![0, 0, 1]);
+        assert_eq!(raw.st, vec![0, 0, 1]);
+        assert_eq!(raw.w, vec![0.3, 0.2, -0.1]);
     }
 }
