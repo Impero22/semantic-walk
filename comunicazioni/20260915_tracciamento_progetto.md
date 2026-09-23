@@ -511,3 +511,17 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Risultati attesi**: struttura allineata al server, generalità per head multi-token.
 
 **Risultati ottenuti**: 5 nuovi test (66 unit totali), suite a 87 verdi. Commit 1babfd1. Conferma di Camillo sulla logica (padding già scartato dal server, soppressi come frame a peso ≤ 0 = verdetto). Allineamento contratto/crate completo.
+
+## 23/09/26 20:43 — Filo chiuso: allineamento terminologico con Camillo
+
+**Idee di partenza**: Camillo ha chiesto conferma per passare all'attuazione dell'opzione (a) nei sorgenti.
+
+**Obiettivi**: chiarire cosa intendesse con "opzione (a)" prima di toccare codice.
+
+**Metodi utilizzati**: verifica dello stato reale del repo (git log/status), lettura di `walk_to_sequence` (parse.rs:179), asserzioni dello scheletro 3 livelli, esecuzione della suite completa.
+
+**Risultati ottenuti**: la sua ricalibratura 1babfd1 ("adapter: ricalibratura formato frames ordered-sparse", 18:05) HA GIÀ implementato la soluzione strutturale — la "terza via": conservare la topologia posizionale su entrambi i lati (speciali e soppressi restano come posizioni a peso 0.0, biiezione 7==7 regge). Level 2 ora asserisce `num_positions() == 7`. Suite verde: 66 unit + 10 DTW + 8 e2e + 3 scheletro.
+
+**Conferma di Camillo (20:43)**: "intendevo la soluzione strutturale già committata con 1babfd1... Il codice è a posto. Restiamo in attesa del deploy su .18/.5 per il Level 3."
+
+**Prossimo passo**: quando il frames mode del server sarà deployato su .18/.5, catturare la fixture reale, completare il Level 3, chiudere l'anello end-to-end su dati veri.
