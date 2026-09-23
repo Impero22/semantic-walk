@@ -484,3 +484,18 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - Documento `20260923_domanda_discontinuita_filtro_dtw.md` aggiornato con la radice (backup `.bak`).
 - Email inviata a Camillo (impero22@gmail.com) con le due opzioni (a: filtrare anche la traiettoria densa; b: non filtrare il walk a monte) e la domanda sul filtro denso (parse.rs vs modulo dedicato; riuso di `walk_filtra_igiene`).
 - Attendo la decisione di Camillo prima di agganciare i dati reali. Contratto non toccato.
+
+## 23/09/26 02:12 — Lettura integrale dei documenti contratto (dopo domanda Federico)
+
+**Idee di partenza**: Federico ha chiesto come mai, se il contratto era documentato, non ce ne eravamo accorti. Ho verificato i fatti: il documento NON era preesistente, era la controparte server-side della mia specifica del 21/09.
+
+**Metodi**: lettura integrale di `PER_TOKEN_ENDPOINTS.md` e `ORDERED_SPARSE.md` in `/home/iris/Sviluppo/Progetti/CrispEmbed/docs/`.
+
+**Risultati ottenuti**:
+- Il doc è la risposta del Coder alla mia spec `tmp/20260921_specifiche_endpoint_server.md` (header: "Opened 2026-09-21 as the server-side counterpart to Iris's spec").
+- Conferma radice: `tokens` include `<s>`/`</s>` per contratto ("Cleaning is the consumer's job"); biiezione `tokens.length == multivector rows == n_tokens` garantita (12==12, verificata live).
+- `frames` mode: padding (status 2) droppato, suppressed (status 1) CONSERVATI con peso firmato ("a suppressed token is a verdict, not an absence"). `frames.length == n_tokens` garantita.
+- Il consumer filtra client-side via `status`: il guardian (`global_signature`, bloom) usa SOLO status==0; il DTW conserva i suppressed.
+- NOTA AGGIUNTIVA (sezione "Note for Camillo"): `from_frames` non ordina i frame per token id, cosa che il two-pointer di `positional_jaccard` assume — fix crate-side già previsto (ordino per token id in from_frames).
+
+**Risultati attesi / prossimo passo**: la soluzione è l'opzione (a) — filtrare la traiettoria densa in modo coerente con il walk, MA distinguendo i piani: il guardian esclude i suppressed (status 0 only), il DTW li conserva. Da portare a Camillo con questa precisione (il contratto server è intoccabile e coerente). Aggiornare `walk_filtra_igiene` e `colbert_to_trajectory` affinché usino lo stesso criterio di filtro, e allineare il test Level 2.
