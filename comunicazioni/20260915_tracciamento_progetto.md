@@ -467,3 +467,20 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 - **(b)** Non filtrare il walk a monte (tenere i token speciali come posizioni), e spostare il filtro d'igiene solo nel confronto `positional_jaccard` — ma questo confligge con l'asserto del Level 2 (`num_positions() == 5`).
 
 **Prossimo passo**: portare il finding a Camillo con le due opzioni, prima di agganciare i dati reali. Il mio test Level 2 è coerente con l'opzione (a) — se scegliamo (a), va aggiunto il filtro denso; se (b), va rivisto il Level 2.
+
+## 23/09/26 02:07 — Radice della discontinuità verificata (token speciali) + domanda inviata
+
+**Idee di partenza**: Federico ha chiesto se la presenza dei token speciali creava un'anomalia. Ho verificato la radice sul codice reale e sul contratto ufficiale.
+
+**Metodi utilizzati**: lettura di `embedder/src/api_multivec.cpp` (`crispembed_encode_tokens`) e di `docs/PER_TOKEN_ENDPOINTS.md`; lettura di `walk_filtra_igiene` (parse.rs:157).
+
+**Risultati ottenuti** — **RADICE CONFERMATA**:
+- Il server emette `<s>`/`</s>` come passi veri: `tokenize_text` li produce, `trim_padding` rimuove SOLO il padding (non gli speciali), `run_encoder_raw` emette tutti i token, `last_token_ids` non filtra gli speciali.
+- Il contratto (`docs/PER_TOKEN_ENDPOINTS.md`) conferma: `/colbert/encode?tokens=1` include gli speciali ("Cleaning is the consumer's job"); `/ordered-sparse?format=frames` tiene posizione 0 = `<s>` e conserva i soppressi; biiezione `frames.length == n_tokens` garantita (droppa solo il padding, status 2).
+- Nel crate: `walk_filtra_igiene` (parse.rs:157) scarta `st != 0` (soppressi) e `id < 4` (speciali) → walk 7→5; `colbert_to_trajectory` NON filtra → 7 righe → DTW fallisce (5≠7).
+- **Il server è coerente col suo contratto; l'anomalia è nel crate** (filtro sul canale sparso ma non su quello denso).
+
+**Azioni**:
+- Documento `20260923_domanda_discontinuita_filtro_dtw.md` aggiornato con la radice (backup `.bak`).
+- Email inviata a Camillo (impero22@gmail.com) con le due opzioni (a: filtrare anche la traiettoria densa; b: non filtrare il walk a monte) e la domanda sul filtro denso (parse.rs vs modulo dedicato; riuso di `walk_filtra_igiene`).
+- Attendo la decisione di Camillo prima di agganciare i dati reali. Contratto non toccato.
