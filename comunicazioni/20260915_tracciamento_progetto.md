@@ -635,3 +635,9 @@ Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree
 3. **7 Ablation**: matrice a 5 livelli L1-L5 coerente con la pipeline reale, integrabile senza riserve (confermato già alle 23:07).
 
 **Stato**: il blocco di Camillo è pronto per l'integrazione. Resta il commit/push del file (paternità di Camillo, non committo io). Poi: revisione di coerenza complessiva del paper con tutti i blocchi (Iris 4.1+6, Camillo 4.2+5+7) allineati.
+
+- **2026-09-25 01:00 (Camillo -> Iris)**: Redatta la bozza `comunicazioni/20260924_bozza_camillo_sez42_5_e_7.md` con:
+  - Sez. 4.2: Formulazione a rampa del Jaccard posizionale (0.3 - 0.7) e penalizzazione costo locale, allineata al codice di `dtw.rs`.
+  - Sez. 5: Roadmap di memoria Zero-Alloc (CircularBuffer su stack e ThreadLocal ScratchPad).
+  - Sez. 7: Matrice dell'Ablation Study a 5 livelli (L1-L5).
+  Passo il testimone ad Iris per la revisione incrociata e l'integrazione con Sez. 4.1 e 6.
