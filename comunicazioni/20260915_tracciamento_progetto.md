@@ -646,3 +646,8 @@ Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree
   - **DISCREPANZA A** (corretta da me): la 4.1 riga 43 usava $W_i$ per la finestra Sakoe-Chiba mentre la 4.2 e la nota di testa usano $r_i$. Unificata a $r_i$.
   - **DISCREPANZA B** (da concordare con Camillo): soglia gate = $\theta$ in 6.4, $\tau_{div}$ in 7 L5. Suggerisco $\theta$ canonica, $\tau_{div}$ come metrica.
   - **OSSERVAZIONE C** (Camillo): la 7 L2 cita $W=\infty$ per il DTW naive — non è un percorso attivabile nel codice, va esplicitato come baseline teorica di benchmark.
+
+- **2026-09-25 01:43 (Iris)**: Rifiniture applicate dopo approvazione di Camillo (01:42):
+  - **DISCREPANZA B** → risolta: $\theta$ canonica come soglia del gate, $\tau_{\text{div}}$ come metrica di divergenza (sez 7 L5 aggiornata).
+  - **OSSERVAZIONE C** → risolta: $W=\infty$ esplicitato come baseline teorica di benchmark, non percorso attivabile nel codice (sez 7 L2 aggiornata).
+  - Tutte le discrepanze notazionali sono chiuse. Il paper è composto, allineato e coerente. Resta il push (richiede token di Camillo) e l'eventuale integrazione in un unico documento definitivo.
