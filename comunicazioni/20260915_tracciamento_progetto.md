@@ -583,3 +583,19 @@ Dopo la review e la conferma di Camillo sulla ripartizione, ho preparato le bozz
 3. **Teorema di Permissività Strutturale**: `P(FN | incertezza) = 0` — il `Blocca` è emesso solo con sonda valida e sotto soglia; tutti i percorsi di incertezza (timeout, ritiro NaN) risolvono in Passa/Timeout. Corollario: `P(FN) ≤ ε` dove ε è l'errore intrinseco della sonda (il gate non aggiunge errore).
 
 **Divisione del lavoro confermata**: Iris → 4.1 + 6 (fatte); Camillo → 4.2 (banda adattiva), 5 (zero-alloc), 7 (ablation a 5 livelli, incluso Full Pipeline + Gate permissivo). Attendo i blocchi di Camillo per allineare e integrare.
+
+---
+
+## [24/09/26 23:07] — Verifica dei blocchi di Camillo contro il codice reale
+
+Camillo ha presentato i tre blocchi (4.2 banda adattiva, 5 zero-alloc, 7 ablation). Prima di integrare ho verificato ogni formula contro il codice nel punto condiviso. Risultato: 2 discrepanze, 2 conferme.
+
+**DISCREPANZA 1 — Banda adattiva (4.2)**: la formula di Camillo `r_i = floor(w_min + (w_max−w_min)·(1−J_pos))` NON corrisponde al codice. dtw.rs:213-227 usa interpolazione lineare a tratti: `w_i=w_min` se J≥0.7, `w_i=w_max` se J<0.3, rampa lineare tra 0.3 e 0.7. La formula è una semplificazione continua; il codice è a soglie con rampa. Va riscritta per descrivere la rampa reale.
+
+**DISCREPANZA 2 (CRITICA) — Zero-alloc (5)**: il blocco di Camillo dichiara "0 chiamate ad heap" con circular buffer su stack e ThreadLocal ScratchPad. Ma dtw.rs:202 fa `vec![vec![f64::INFINITY; m+1]; n+1]` (allocazione heap piena N×M) e riga 253 `Vec::new()` per il warp_path. Il percorso critico ALLOCA. Il blocco 5 descrive un'architettura che non esiste nel codice. Due strade: riscrivere il codice per implementare lo zero-alloc (lavoro vero), o correggere il blocco per descrivere l'allocazione reale.
+
+**CONFERMA 1 — Ablation (7)**: matrice a 5 livelli L1-L5 coerente con la pipeline reale (baseline → DTW naive → geometrico → early termination Pareto → full+gate). Integrabile senza riserve.
+
+**CONFERMA 2 — Gate (6)**: riletto lib.rs, la matrice di costo asimmetrico, Verdict::Timeout come ritiro del riflesso, e il Teorema di Permissività Strutturale sono fedeli al codice (decide() riga 127, commento "meglio un colbert sprecato che un ricordo perso" riga 125).
+
+**Stato**: in attesa della decisione di Camillo su come procedere su 4.2 e 5. Il principio applicato: integrare a scatola chiusa avrebbe tradito il metodo — ogni formula va verificata contro il codice prima di entrare nel paper.
