@@ -599,3 +599,15 @@ Camillo ha presentato i tre blocchi (4.2 banda adattiva, 5 zero-alloc, 7 ablatio
 **CONFERMA 2 — Gate (6)**: riletto lib.rs, la matrice di costo asimmetrico, Verdict::Timeout come ritiro del riflesso, e il Teorema di Permissività Strutturale sono fedeli al codice (decide() riga 127, commento "meglio un colbert sprecato che un ricordo perso" riga 125).
 
 **Stato**: in attesa della decisione di Camillo su come procedere su 4.2 e 5. Il principio applicato: integrare a scatola chiusa avrebbe tradito il metodo — ogni formula va verificata contro il codice prima di entrare nel paper.
+
+---
+
+## [24/09/26 23:22] — Approvazione di Camillo sulle bozze 4.1 e 6
+
+Camillo ha verificato le mie bozze delle sezioni 4.1 (costo locale col coseno normalizzato senza prodotto dei pesi) e 6 (Teorema di Permissività, Verdict::Timeout come ritiro del riflesso) incrociandole con `semantic-walk/src/dtw.rs` e il crate del gate. Approvazione piena: "Per me è pronta da integrare con i miei capitoli 👍".
+
+**Coordinamento aperto**: Sez. 4.2 (banda adattiva guidata da `OrderedSparseSequence`, `align_with_ordered_sparse` in dtw.rs) è il capitolo di Camillo — la verifica delle 23:07 ha evidenziato una discrepanza tra la sua formula (semplificazione continua) e la rampa a soglie del codice (dtw.rs:213-227). Resta da allineare.
+
+**Stato repo**: due commit locali in attesa di push (97745f5 bozze sez 4.1+6, 1f7b1cf verifica blocchi Camillo — 2 discrepanze trovate: 4.2 rampa e 5 zero-alloc). Remote fermo a 6ba4ec0, serve il token di Camillo per il push.
+
+**Prossimo passo**: integrazione dei capitoli di Camillo (4.2, 5, 7) con revisione di coerenza finale. Il paper si compone.
