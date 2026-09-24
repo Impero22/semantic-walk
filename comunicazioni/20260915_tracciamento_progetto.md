@@ -621,3 +621,17 @@ La mail di Camillo (23:19, key 00000598) ha approvato formalmente le bozze 4.1 e
 **Recepito**: aggiunto un paragrafo di chiusura alla 4.1 che descrive i due strati della guida ordered-sparse — Strato 1 (guardiano O(1) su `global_overlap`, ritiro geometrico `Ok(None)`) e Strato 2 (Sakoe-Chiba dinamica modulata dal `positional_jaccard`: J≥0.7→w_min, J<0.3→w_max, rampa lineare tra soglie). Il rimando descrive la rampa reale a soglie del codice (coerente con la verifica delle 23:07 sulla discrepanza 4.2), non la semplificazione continua di Camillo.
 
 **Stato**: la proposta di Camillo è integrata. Resta il coordinamento sulla 4.2 (allineare la formula di Camillo alla rampa reale) e sui blocchi 5 e 7.
+
+---
+
+## [25/09/26 00:05] — Verifica del blocco di Camillo (4.2, 5, 7) contro il codice reale
+
+Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree (untracked, non ancora committato da Camillo). L'ho verificato contro `semantic-walk/src/dtw.rs`. **Esito: coerente, entrambe le discrepanze delle 23:07 sono state recepite.**
+
+1. **4.2 Banda adattiva (DISCREPANZA 1 RISOLTA)**: la formulazione ora è a rampa lineare a tratti, identica al codice (dtw.rs:209-218): `J≥0.7→w_min`, `J<0.3→w_max`, interpolazione lineare `(w_min + (w_max−w_min)·t)` con `t=(J−0.3)/0.4` nel range intermedio. La penalità sul costo locale `C*(1.0+(0.3−J_i))` per `J<0.3` coincide con dtw.rs:232-235.
+
+2. **5 Memoria (DISCREPANZA 2 RISOLTA)**: la sezione ora descrive onestamente lo stato attuale — allocazione heap N×M (`vec![vec![f64::INFINITY; m+1]; n+1]`) e `warp_path` dinamico — e formalizza lo zero-alloc come *roadmap* (circular buffer su stack + ThreadLocal ScratchPad), non come implementazione esistente. Corretto: prima dichiarava "0 chiamate ad heap" come fatto.
+
+3. **7 Ablation**: matrice a 5 livelli L1-L5 coerente con la pipeline reale, integrabile senza riserve (confermato già alle 23:07).
+
+**Stato**: il blocco di Camillo è pronto per l'integrazione. Resta il commit/push del file (paternità di Camillo, non committo io). Poi: revisione di coerenza complessiva del paper con tutti i blocchi (Iris 4.1+6, Camillo 4.2+5+7) allineati.
