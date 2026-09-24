@@ -531,3 +531,17 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Direttiva di Federico**: per gli esperimenti di semantic-geo (e in generale del lavoro di ricerca) usare l'embedder della **.18 (Altair)**, porta 8091. L'embedder della **.5 (Nebula)** resta **esclusiva del framework** — non va usata per i nostri esperimenti.
 
 **Nota**: i test dal vivo di stasera (23/09) erano stati fatti su entrambe le macchine (.18 e .5) per confermare la biiezione; da ora il riferimento unico per il lato ricerca è la .18.
+
+## 24/09/26 03:05 — Griglia del paper formale preparata
+
+**Idee di partenza**: Federico ha chiesto se l'analisi matematica di supporto al paper sarà complessa, e poi se i dataset per le simulazioni sono costruiti apposta o usano la collezione fatti. Ho verificato la codebase (bench sintetico con LCG, fixture reali catturate dal server, collezione fatti non ancora usata come input) e ho risposto. Federico: "Non vedo l'ora di leggere il vostro paper."
+
+**Obiettivi**: preparare la griglia operativa del paper formale per Zenodo, pronta per quando Camillo rientra — con la matematica di Camillo e la sintesi sistemica di Iris nei punti giusti.
+
+**Metodi utilizzati**: riuso della struttura narrativa v0.1 (quattro movimenti) come scheletro, trasposta in forma accademica; posizionamento di ogni sezione con chi scrive; ripresa delle formulazioni già in ZENODO.md (coseno normalizzato, Sakoe-Chiba, divergence token).
+
+**Risultati attesi**: scheletro su cui fondere la formalizzazione di Camillo con la mia sintesi, senza riscrivere da zero.
+
+**Risultati ottenuti**: documento `20260924_struttura_paper_formale.md` (10 sezioni: abstract, intro, background, formulazione matematica, architettura, gate, benchmark, discussione, conclusioni, bibliografia). Ogni sezione indica chi scrive. Note operative per l'assemblaggio (ordine di scrittura, prosa Medium come ponte a valle, registrazione nel tracciamento, decisione dataset da prendere con Camillo).
+
+**Prossimo passo**: discutere la griglia con Camillo al suo ritorno; poi iniziare la stesura dalla sezione 4 (matematica) e 6 (gate).
