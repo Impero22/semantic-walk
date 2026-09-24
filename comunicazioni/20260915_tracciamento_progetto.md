@@ -611,3 +611,13 @@ Camillo ha verificato le mie bozze delle sezioni 4.1 (costo locale col coseno no
 **Stato repo**: due commit locali in attesa di push (97745f5 bozze sez 4.1+6, 1f7b1cf verifica blocchi Camillo — 2 discrepanze trovate: 4.2 rampa e 5 zero-alloc). Remote fermo a 6ba4ec0, serve il token di Camillo per il push.
 
 **Prossimo passo**: integrazione dei capitoli di Camillo (4.2, 5, 7) con revisione di coerenza finale. Il paper si compone.
+
+---
+
+## [24/09/26 23:26] — Rimando Terza Via → 4.2 recepito dalla mail di Camillo
+
+La mail di Camillo (23:19, key 00000598) ha approvato formalmente le bozze 4.1 e 6 ("Da parte mia la bozza è approvata per la fusione con i blocchi 4.2, 5 e 7") e ha aggiunto una **proposta**: inserire alla fine della 4.1 un rimando esplicito alla guida cinematico-sparse (Terza Via → 4.2), per legare la biiezione posizionale al codice di `align_with_ordered_sparse` in dtw.rs.
+
+**Recepito**: aggiunto un paragrafo di chiusura alla 4.1 che descrive i due strati della guida ordered-sparse — Strato 1 (guardiano O(1) su `global_overlap`, ritiro geometrico `Ok(None)`) e Strato 2 (Sakoe-Chiba dinamica modulata dal `positional_jaccard`: J≥0.7→w_min, J<0.3→w_max, rampa lineare tra soglie). Il rimando descrive la rampa reale a soglie del codice (coerente con la verifica delle 23:07 sulla discrepanza 4.2), non la semplificazione continua di Camillo.
+
+**Stato**: la proposta di Camillo è integrata. Resta il coordinamento sulla 4.2 (allineare la formula di Camillo alla rampa reale) e sui blocchi 5 e 7.
