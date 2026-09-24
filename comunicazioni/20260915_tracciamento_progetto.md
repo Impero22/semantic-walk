@@ -545,3 +545,41 @@ Questo documento è il registro unico e progressivo del progetto. Ogni fase vien
 **Risultati ottenuti**: documento `20260924_struttura_paper_formale.md` (10 sezioni: abstract, intro, background, formulazione matematica, architettura, gate, benchmark, discussione, conclusioni, bibliografia). Ogni sezione indica chi scrive. Note operative per l'assemblaggio (ordine di scrittura, prosa Medium come ponte a valle, registrazione nel tracciamento, decisione dataset da prendere con Camillo).
 
 **Prossimo passo**: discutere la griglia con Camillo al suo ritorno; poi iniziare la stesura dalla sezione 4 (matematica) e 6 (gate).
+
+---
+
+## [24/09/26 22:14] — Review da pari della formalizzazione di Camillo (paper formale)
+
+Camillo ha prodotto la formalizzazione analitica completa del paper (20260924_struttura_paper_formale_camillo.md, 10 sezioni, versione 1.0). L'ho letta con revisione critica da pari, incrociando ogni formula con il codice reale nel punto condiviso.
+
+**TRE DISCREPANZE trovate tra paper e codice** (dettaglio in 20260924_review_camillo_paper_formale.md):
+
+1. **[CRITICA] Funzione di costo locale** — il paper (4.1) definisce `C(i,j) = (w_i^X · w_j^Y) · ‖x_i − y_j‖₂` (Euclidea L2 ponderata), ma il codice (dtw.rs:235) usa `cosine_distance` (1.0 − sim) senza moltiplicazione per pesi token. Un revisore esterno con accesso al codice lo smonterebbe.
+
+2. **[RILEVANTE] Banda di Sakoe-Chiba dinamica, non statica** — il paper (4.2) descrive una banda statica `Ω_W = {|j − ⌊i·M/N⌋| ≤ W}`, ma il codice (dtw.rs:214-227) implementa una banda adattiva modulata dal Jaccard posizionale (w_i interpolato tra w_min e w_max). La banda adattiva merita di essere formalizzata come contributo proprio.
+
+3. **[TERMINOLOGICA] Collisione di notazione su w_i** — nel paper w_i è il peso del token, nel codice w_i è il raggio di banda. Stessa lettera, due concetti.
+
+**CORRETTO e da preservare** (verificato su codice reale): ricorrenza di Bellman, condizioni al contorno (INFINITY), token di divergenza τ_div = |N−M|/L_path (dtw.rs:127), corollario pruning branch-level (coerente con Sonus).
+
+**PROPOSTA OPERATIVA**: (a) riscrivere 4.1 per descrivere il coseno normalizzato, (b) promuovere la banda adattiva a contributo formale, (c) pulire la notazione. Primo blocco rivisto come candidato per i modelli di alto livello (crediti Alibaba di Federico).
+
+---
+
+## [24/09/26 22:52] — Bozza Iris Sezione 4.1 (rev) e Sezione 6 (gate espanso)
+
+Dopo la review e la conferma di Camillo sulla ripartizione, ho preparato le bozze che mi competono (candidate per i modelli di alto livello / crediti Alibaba).
+
+**Documento**: `20260924_bozza_iris_sez41_e_6.md`
+
+**Sezione 4.1 (REV)** — Correzioni rispetto alla v1.0 di Camillo:
+1. Costo locale riscritto col coseno normalizzato: `C(i,j) = 1.0 − sim(x_i, y_j)`, SENZA prodotto dei pesi token (fedele a dtw.rs:235). I pesi governano l'igiene posizionale, non la scala del costo.
+2. Identità L2–coseno `‖x−y‖₂ = √(2·d_cos)` relegata a nota (vale solo per vettori normalizzati).
+3. Notazione peso token unificata a `w_i`; raggio di banda passa a `r_i` (per evitare la collisione con 4.2).
+
+**Sezione 6 (REV espansa)** — Estende la v1.0 di Camillo con:
+1. Matrice di decisione a costo asimmetrico `C_FN >> C_FP` (fedele al commento in lib.rs: "meglio un colbert sprecato che un ricordo perso").
+2. Formalizzazione del `Verdict::Timeout` come **ritiro del riflesso** (passaggio conservativo neutro, mai blocco) — distinzione tra "scarto per risparmio" (giudice) e "conservazione del tempo di calcolo" (riflesso che si ritira).
+3. **Teorema di Permissività Strutturale**: `P(FN | incertezza) = 0` — il `Blocca` è emesso solo con sonda valida e sotto soglia; tutti i percorsi di incertezza (timeout, ritiro NaN) risolvono in Passa/Timeout. Corollario: `P(FN) ≤ ε` dove ε è l'errore intrinseco della sonda (il gate non aggiunge errore).
+
+**Divisione del lavoro confermata**: Iris → 4.1 + 6 (fatte); Camillo → 4.2 (banda adattiva), 5 (zero-alloc), 7 (ablation a 5 livelli, incluso Full Pipeline + Gate permissivo). Attendo i blocchi di Camillo per allineare e integrare.
