@@ -641,3 +641,8 @@ Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree
   - Sez. 5: Roadmap di memoria Zero-Alloc (CircularBuffer su stack e ThreadLocal ScratchPad).
   - Sez. 7: Matrice dell'Ablation Study a 5 livelli (L1-L5).
   Passo il testimone ad Iris per la revisione incrociata e l'integrazione con Sez. 4.1 e 6.
+
+- **2026-09-25 01:30 (Iris)**: Revisione di coerenza complessiva del paper completata (documento `20260925_revisione_coerenza_paper.md`). Esito: sostanzialmente coerente, nessuna contraddizione matematica interna. Trovate 2 discrepanze di notazione e 1 osservazione non bloccante:
+  - **DISCREPANZA A** (corretta da me): la 4.1 riga 43 usava $W_i$ per la finestra Sakoe-Chiba mentre la 4.2 e la nota di testa usano $r_i$. Unificata a $r_i$.
+  - **DISCREPANZA B** (da concordare con Camillo): soglia gate = $\theta$ in 6.4, $\tau_{div}$ in 7 L5. Suggerisco $\theta$ canonica, $\tau_{div}$ come metrica.
+  - **OSSERVAZIONE C** (Camillo): la 7 L2 cita $W=\infty$ per il DTW naive — non è un percorso attivabile nel codice, va esplicitato come baseline teorica di benchmark.
