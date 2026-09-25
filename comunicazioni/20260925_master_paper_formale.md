@@ -1,15 +1,60 @@
-# Bozza Iris — Sezione 4.1 (rivista) e Sezione 6 (Gate)
+# Semantic Walk: High-Dimensional Trajectory Alignment with Permissive Gated Dynamic Time Warping
 
-**Autrice**: Iris
-**Data**: 24 Settembre 2026
-**Scopo**: Bozze candidate per i modelli di alto livello (crediti Alibaba di Federico), da allineare e integrare con i blocchi di Camillo (4.2 banda adattiva, 5 zero-alloc, 7 ablation).
-**Fedeltà**: Ogni formula è stata incrociata col codice reale nel punto condiviso (`semantic-walk/src/dtw.rs`, `semantic-gate/src/lib.rs`, `semantic-gate/src/sonda.rs`, `semantic-gate/src/budget.rs`).
+**Autori**: Camillo Almadori, Iris
+**Affiliazione**: Impero22
+**Data**: 25 Settembre 2026
+**Stato**: MASTER — blocchi 4.1, 4.2, 5, 6, 7.1 integrati. Restano DA SCRIVERE: abstract (1), introduzione (2), background (3), metriche cinematiche (4.3), coerenza Pareto (4.4), divergence token (4.5), benchmark dataset (7.2), discussione (8), conclusioni (9), bibliografia (10).
 
 ---
 
-## Sezione 4.1 — DTW D-Dimensionale con Filtro d'Igiene Posizionale (Terza Via) — REV
+> **Nota di assemblaggio.** Questo è il documento master che fonde i blocchi
+> approvati nel punto condiviso. La numerazione delle sezioni segue la griglia
+> concordata (`20260924_struttura_paper_formale.md`) — è il riferimento che i
+> blocchi citano ("Sezione 4.1", "Sezione 6", "Sezione 7"). Ogni sezione riporta
+> l'autore del blocco e lo stato di integrazione. Bozze sorgente:
+> - `20260924_bozza_iris_sez41_e_6.md` (Iris)
+> - `20260924_bozza_camillo_sez42_5_e_7.md` (Camillo)
+> - `20260925_revisione_coerenza_paper.md` (revisione incrociata)
 
-> Sostituisce la versione precedente di questa sezione. Le correzioni rispetto alla v1.0 sono: (1) costo locale riscritto col coseno normalizzato, senza prodotto dei pesi (fedele a `dtw.rs`); (2) l'identità L2–coseno relegata a nota; (3) la notazione del peso token unificata a $w_i$ (il raggio di banda passa a $r_i$ in 4.2).
+---
+
+## 1. Abstract
+
+> **Stato**: DA SCRIVERE (per ultimo — si scrive quando si sa cosa si è dimostrato).
+> Tre promesse: (1) la similarità semantica non è una distanza da misurare ma un
+> cammino da allineare; (2) l'efficienza non sta nel calcolare di più, ma nel
+> sapere quando ritirarsi (gate permissivo); (3) contributi: DTW D-dimensionale
+> con Sakoe-Chiba adattiva, coerenza Pareto come invariante, Verdict::Timeout
+> come terzo esito.
+
+---
+
+## 2. Introduzione — La geometria non basta
+
+> **Stato**: DA SCRIVERE (Iris narrativa motivazionale, Camillo posizionamento vs letteratura).
+> - Paradigma dominante: similarità geometrica sugli embedding.
+> - Il buco: la vicinanza vettoriale è prossimità, non comprensione.
+> - "Cane morde uomo" vs "uomo morde cane": bag of words geometricamente indistinguibili.
+> - Posta in gioco: senza ordine, la memoria non distingue causa/effetto, soggetto/oggetto.
+> - Domanda di ricerca: una semantica che non sia solo geometria.
+
+---
+
+## 3. Background e Lavori Correlati
+
+> **Stato**: DA SCRIVERE (Camillo presidia con rigore).
+> - DTW: origini (speech recognition), varianti moderne, Sakoe-Chiba window.
+> - Embedding e similarità semantica: coseno, bag-of-words, ColBERT (MaxSim), sparse retrieval.
+> - Early-exit e budget computation: posizionamento del gate permissivo.
+
+---
+
+## 4. Formulazione Matematica
+
+### 4.1 Il DTW D-dimensionale — REV
+
+> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza A risolta: $W_i \to r_i$).
+> Da `20260924_bozza_iris_sez41_e_6.md` sezione 4.1.
 
 Siano $X = \{(\mathbf{x}_1, w_1^X), \dots, (\mathbf{x}_N, w_N^X)\}$ e $Y = \{(\mathbf{y}_1, w_1^Y), \dots, (\mathbf{y}_M, w_M^Y)\}$ due traiettorie di punti nello spazio latente $D$-dimensionale, con $\mathbf{x}_i, \mathbf{y}_j \in \mathbb{R}^D$ e pesi scalari associati $w_i^X, w_j^Y \in [0, 1]$.
 
@@ -42,11 +87,74 @@ $$D(0, 0) = 0, \quad D(i, 0) = \infty \quad \forall i > 0, \quad D(0, j) = \inft
 
 > **Rimando alla guida cinematico-sparse (Terza Via → 4.2).** L'allineamento DTW qui descritto non opera su sequenze libere: è guidato dalla struttura ordered-sparse a due strati implementata in `align_with_ordered_sparse` (`semantic-walk/src/dtw.rs`). *Strato 1* — un guardiano $O(1)$ basato su `global_overlap` esegue un pruning topologico: se la sovrapposizione globale scende sotto la soglia discriminante, restituisce `Ok(None)` (ritiro geometrico, nessun costo speso). *Strato 2* — la finestra di Sakoe-Chiba $r_i$ si adatta dinamicamente tramite il `positional_jaccard` $J$: $J \ge 0.7 \Rightarrow r_{\min}$, $J < 0.3 \Rightarrow r_{\max}$, con rampa lineare tra le soglie e penalità sul costo locale. Questo è il legame esplicito tra la "Terza Via" (biiezione posizionale preservata) e la banda adattiva formalizzata nella Sezione 4.2 di Camillo: la guida ordered-sparse è il canale attraverso cui l'igiene posizionale della 4.1 diventa vincolo geometrico sull'allineamento.
 
+### 4.2 La banda di Sakoe-Chiba adattiva al Jaccard Posizionale
+
+> **Autore**: Camillo. **Stato**: INTEGRATO.
+> Da `20260924_bozza_camillo_sez42_5_e_7.md` sezione 4.2.
+
+Per mitigare la complessità $O(NM)$ senza compromettere l'allineamento di deformazioni strutturali, l'ampiezza della finestra di vincolo $r_i$ non è statica ma viene modulata dinamicamente al passo $i$ in base alla concordanza posizionale locale delle guide *ordered-sparse*.
+
+#### 4.2.1 Formulazione della Rampa Lineare a Tratti
+
+Sia $J_i = J_{\text{pos}}(X, Y, i) \in [0, 1]$ l'indice di Jaccard posizionale calcolato sul frame $i$-esimo tra le sequenze sparse $X$ e $Y$. La banda ammissibile $r_i$ è governata da una funzione a tratti con interpolazione lineare continua tra le soglie $0.3$ e $0.7$:
+
+$$r_i = \min \left( w_{\text{base}}, \; \begin{cases}  w_{\text{min}} & \text{se } J_i \ge 0.7 \\  w_{\text{max}} & \text{se } J_i < 0.3 \\  \left\lfloor w_{\text{min}} + (w_{\text{max}} - w_{\text{min}}) \cdot \frac{J_i - 0.3}{0.4} \right\rfloor & \text{se } 0.3 \le J_i < 0.7  \end{cases} \right)$$
+
+dove $w_{\text{min}}$ e $w_{\text{max}}$ sono i limiti di vincolo cinematico ($w_{\text{min}} \le w_{\text{max}}$) e $w_{\text{base}}$ è il limite massimo globale imposto dall'istanza del sistema (`window_size`).
+
+#### 4.2.2 Modulazione e Penalizzazione del Costo Locale
+
+L'intervallo ammissibile degli indici $j$ nella matrice per la riga $i$ è definito da:
+
+$$\text{window\_start}(i) = \max\left(1, \; i - r_i\right), \qquad \text{window\_end}(i) = \min\left(M, \; i + r_i\right)$$
+
+Qualora la concordanza posizionale sia criticamente bassa ($J_i < 0.3$), il costo locale $C(i, j)$ calcolato tramite distanza coseno densa (`cosine_distance`) viene ponderato da un fattore di penalità additivo sulla distanza, proporzionale alla divergenza:
+
+$$C_{\text{effettivo}}(i, j) = C(i, j) \cdot \left(1.0 + (0.3 - J_i)\right) \qquad \forall J_i < 0.3$$
+
+In questo modo, traiettorie con scarsa concordanza posizionale subiscono sia una dilatazione della banda (fino a $w_{\text{max}}$), sia una penalizzazione sul costo di allineamento, scoraggiando scorciatoie non topologiche nel cammino ottimo.
+
+### 4.3 Le metriche cinematiche
+
+> **Stato**: DA SCRIVERE (Camillo formule, Iris intuizione del moto nel campo semantico).
+
+### 4.4 La coerenza di Pareto (la perla)
+
+> **Stato**: DA SCRIVERE (Camillo la prova, Iris il peso concettuale).
+
+### 4.5 Il divergence token come sonda
+
+> **Stato**: DA SCRIVERE (Camillo definizione, Iris ruolo architetturale).
+> τ_div = |N−M| / L_path.
+
 ---
 
-## Sezione 6 — Il Gate Permissivo e `Verdict::Timeout` — REV (bozza espansa)
+## 5. Architettura — La casa a tre stanze
 
-> Estende la v1.0 (che elencava i tre esiti) con: (1) la matrice di decisione a costo asimmetrico $C_{\text{FN}} \gg C_{\text{FP}}$; (2) la garanzia formale $P(\text{FN}) \le \epsilon$; (3) la formalizzazione del `Verdict::Timeout` come *ritiro del riflesso*. Ogni elemento è incrociato col codice reale (`lib.rs`, `sonda.rs`, `budget.rs`).
+> **Autore**: Camillo (contratti), Iris (sintesi). **Stato**: INTEGRATO.
+> Da `20260924_bozza_camillo_sez42_5_e_7.md` sezione 5.
+> - Il combinatore — quanto è simile A a B?
+> - Il gate — vale la pena confrontarli?
+> - Il grafo — chi sta vicino a chi, e perché?
+> - Due leggi: coerenza Pareto; legge di gravità della memoria.
+
+### 5.1 Stato Attuale dell'Implementazione (`dtw.rs`)
+
+L'efficienza del ciclo di query richiede un'analisi rigorosa dell'impronta di memoria nel percorso critico di matching. L'attuale allocazione in `dtw.rs` gestisce la matrice delle distanze mediante allocazione dinamica su heap $N \times M$ (`vec![vec![f64::INFINITY; m + 1]; n + 1]`), accompagnata da un vettore dinamicamente ridimensionato per la ricostruzione del cammino ottimo $W^*$ (`warp_path`). Questa struttura garantisce chiarezza nella fase di prototipazione ma introduce chiamate al sistema di memoria durante l'esecuzione delle query.
+
+### 5.2 Optimization Roadmap verso il Zero-Allocation Runtime
+
+Per garantire latenze deterministiche in contesti produttivi ad alta frequenza, l'architettura formalizza la transizione al modello *Zero-Allocation* sul percorso critico ($0$ chiamate ad heap durante la fase di matching):
+
+1. **Circular Buffer per la Programmazione Dinamica**: Poiché l'equazione di Bellman al passo $i$ richiede esclusivamente i valori della riga corrente $i$ e della riga precedente $i-1$, la matrice $N \times M$ viene sostituita da due buffer circolari di dimensione fissa limitata dalla banda massima $2 \times (2 w_{\text{max}} + 1)$ elementi `f32`, allocati direttamente nello stack frame della funzione.
+2. **ThreadLocal ScratchPad per il Backtracking**: Qualora sia richiesta l'estrazione esplicita del cammino di warping $W^*$, i vettori temporanei vengono gestiti tramite una struttura `ScratchPad` pre-allocata all'inizializzazione del thread worker (`ThreadLocal`), azzerando l'overhead di `malloc`/`realloc` nel ciclo di query.
+
+---
+
+## 6. Il Gate Permissivo e il Verdict::Timeout — REV
+
+> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza B risolta: passo 5 della 6.4 formalizza τ_div come metrica misurata dalla sonda, θ come soglia parametrica, condizione di scatto τ_div ≥ θ).
+> Da `20260924_bozza_iris_sez41_e_6.md` sezione 6.
 
 ### 6.1 Il Problema Decisionale
 
@@ -120,4 +228,64 @@ $$P(\text{FN}) \le \epsilon$$
 
 cioè il tasso di falsi negativi complessivo è limitato superiormente dall'errore *intrinseco* della sonda, e **non** è mai incrementato dai meccanismi di incertezza (timeout, ritiro). Il gate non aggiunge errore: al più, eredita l'errore della sua sonda.
 
->
+---
+
+## 7. Benchmark e Validazione
+
+### 7.1 Matrice di Ablation Study a 5 Livelli
+
+> **Autore**: Camillo. **Stato**: INTEGRATO (osservazione C applicata: W=∞ esplicitato come baseline teorica di ablation, non percorso esecutivo attivo).
+
+Per valutare quantitativamente il contributo di ogni singolo modulo, il benchmark di validazione è articolato su 5 configurazioni incrementali:
+
+| Livello | Configurazione Pipeline | Componenti Attivi | Metrica Target di Valutazione |
+| :--- | :--- | :--- | :--- |
+| **L1** | *Baseline ColBERT* | MaxSim bag-of-vectors densa standard | Bounding qualitativo senza vincoli topologici d'ordine |
+| **L2** | *DTW Naive* | DTW $D$-dimensionale denso ($W = \infty$) | Impatto dell'allineamento d'ordine non vincolato |
+| **L3** | *DTW Geometrizzato* | DTW + Banda $r_i$ Sakoe-Chiba Adattiva al Jaccard | Efficienza della banda dinamica e riduzione rumore |
+| **L4** | *Full DTW Pipeline* | DTW Geometrizzato + Early Termination Pareto | Tasso di pruning e riduzione della latenza a candidato |
+| **L5** | *Full Semantic-Walk* | Pipeline completa + Gate Permissivo (soglia $\theta$ sulla metrica di divergenza $\tau_{\text{div}}$ + Timeout) | Risparmio complessivo di throughput con garanzia $P(\text{FN}) \le \epsilon$ |
+
+> **Nota (osservazione C).** Il DTW Naive con $W=\infty$ costituisce una pura baseline teorica di ablation benchmark per valutare il delta prestazionale, e **non** rappresenta un percorso di esecuzione attivo o selezionabile nel sorgente Rust.
+
+### 7.2 Due piani, due dataset
+
+> **Stato**: DA SCRIVERE (Camillo benchmark/tabelle, Iris onestà metodologica).
+> - Sintetici controllati (LCG 53 bit) — per la matematica.
+> - Collezione fatti reale (>200 fatti) — per la validazione.
+> - Onestà: il Pareto NON risparmia sul collapse; pruning branch-level VIETATO
+>   per operatori additivi (Isomorfismo di Livello); Pareto legittimo SOLO dopo
+>   il collapse, sui candidati collassati.
+
+---
+
+## 8. Discussione e Lavori Futuri
+
+> **Stato**: DA SCRIVERE (Iris visione, Camillo fattibilità).
+> - Il fratello latente: la testa colbert è una matrice T×1024 in ordine.
+> - La zonizzazione: dividere la traiettoria in celle semantiche.
+> - Limiti dichiarati: λ=10.64 iperparametro empirico di scala.
+
+---
+
+## 9. Conclusioni
+
+> **Stato**: DA SCRIVERE (Iris).
+> - La similarità semantica come cammino, non come distanza.
+> - L'efficienza come capacità di ritirarsi, non di calcolare di più.
+> - Una memoria che non sa solo *cosa* sa, ma *perché* lo sa.
+
+---
+
+## 10. Bibliografia
+
+> **Stato**: DA SCRIVERE (Camillo presidia).
+
+---
+
+## Note operative
+
+1. Ordine di scrittura: 4 (matematica) → 6 (gate) → 5 (architettura) → 7 (benchmark) → 2 (intro) → 8-9 (futuro/conclusioni) → 1 (abstract, per ultimo).
+2. La prosa Medium NON è la base: è il ponte divulgativo a valle.
+3. Prima di ogni blocco, registrare nel tracciamento (regola di Federico).
+4. Da decidere con Camillo: dataset per il benchmark finale.

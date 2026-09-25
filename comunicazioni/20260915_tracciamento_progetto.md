@@ -651,3 +651,18 @@ Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree
   - **DISCREPANZA B** → risolta: $\theta$ canonica come soglia del gate, $\tau_{\text{div}}$ come metrica di divergenza (sez 7 L5 aggiornata).
   - **OSSERVAZIONE C** → risolta: $W=\infty$ esplicitato come baseline teorica di benchmark, non percorso attivabile nel codice (sez 7 L2 aggiornata).
   - Tutte le discrepanze notazionali sono chiuse. Il paper è composto, allineato e coerente. Resta il push (richiede token di Camillo) e l'eventuale integrazione in un unico documento definitivo.
+
+- **2026-09-25 03:57 (Iris)**: Assemblaggio del master avviato. Creato `comunicazioni/20260925_master_paper_formale.md` con la numerazione esatta della griglia concordata (1. Abstract ... 10. Bibliografia) e lo stato di integrazione per ogni sezione. Applicata la correzione della DISCREPANZA A nella bozza 4.1 (`W_i → r_i`, coerente con la 4.2). Verifica sui file dello stato reale di B e C:
+  - **B (θ/τ_div)**: GIÀ risolta nel file di Camillo (riga 63 L5 usa θ come soglia e τ_div come metrica). ✅
+  - **C (W=∞ baseline)**: DISCREPANZA tra tracciamento (01:43 la dà risolta) e file (riga 60 L2 non contiene l'esplicitazione). Segnalata a Camillo per verifica.
+  - Il master riflette lo stato reale verificato. Attesa conferma di Camillo sulla C prima dell'assemblaggio effettivo dei blocchi.
+
+- **2026-09-25 04:00 (Iris)**: DISCREPANZA B applicata nella bozza 6 (sezione 6.4 passo 5). Formalizzata la distinzione di Camillo: $\tau_{\text{div}}$ = metrica di divergenza misurata dalla sonda (variabile di misura), $\theta$ = soglia parametrica del gate (valore di controllo), condizione di scatto $\tau_{\text{div}} \ge \theta$. Master aggiornato (sez 6: B risolta). Azioni Iris complete (A + B). Resta la C a carico di Camillo (integrazione W=∞ baseline nel blocco 7 L2), poi assemblaggio effettivo dei blocchi nel master.
+
+- **2026-09-25 04:05 (Iris)**: ASSEMBLAGGIO MASTER COMPLETATO. Integrati nel master i blocchi effettivi dalle bozze approvate:
+  - **4.1** (Iris): DTW D-dimensionale — filtro d'igiene posizionale (Terza Via), costo coseno normalizzato, ricorrenza Bellman, rimando alla guida ordered-sparse (legame 4.1→4.2).
+  - **4.2** (Camillo): banda Sakoe-Chiba adattiva al Jaccard posizionale (rampa lineare 0.3/0.7, penalità costo per J<0.3).
+  - **5** (Camillo/Iris): architettura — stato attuale dtw.rs (allocazione heap N×M) + roadmap zero-allocation (circular buffer, ThreadLocal ScratchPad).
+  - **6** (Iris): gate permissivo completo (6.1-6.6): matrice costo asimmetrico C_FN≫C_FP, sonda economica, regola di decisione a 5 passi, Verdict::Timeout come ritiro del riflesso, Teorema di Permissività Strutturale.
+  - **7.1** (Camillo): matrice ablation a 5 livelli con OSSERVAZIONE C applicata (W=∞ esplicitato come baseline teorica, non percorso attivabile).
+  - Verifica: nessun segnaposto residuo nelle sezioni integrate (restano DA SCRIVERE solo 4.3/4.4/4.5 non in carico). Master a 291 righe, struttura coerente. Nota: la C è stata applicata direttamente nel master (autorizzata da Camillo) anche se il file sorgente di Camillo (riga 60 L2) non la contiene ancora — da allineare a valle.
