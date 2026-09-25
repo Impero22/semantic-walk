@@ -116,30 +116,30 @@ In questo modo, traiettorie con scarsa concordanza posizionale subiscono sia una
 
 ### 4.3 Le metriche cinematiche
 
-> **Autore**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO — *implementato e verificato da test* (patch `365596b`).
-> Le metriche cinematiche sono calcolate nel backtracking del DTW: `compute_kinematic` popola `TrajectoryAlignment::kinematic` con un `KinematicStep` (v/a/κ) per ogni punto del warp_path. Vedi Sezione 5.1.
+> **Autori**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO E OPERATIVO (patch `dtw.rs`).
+> Le metriche cinematiche sono calcolate in fase di backtracking dal modulo `compute_kinematic`, popolando un `KinematicStep` per ciascun punto del `warp_path` $P = \{(i_k, j_k)\}_{k=0}^{K-1}$.
 
-Le tre grandezze cinematiche sono calcolate lungo il cammino di allineamento $P = \{(i_k, j_k)\}$ per $k = 1 \dots K$. L'azione inerziale costituisce un transfer originale dal *minimum-jerk model* della robotica (Flash & Hogan, 1985) all'Information Retrieval.
+Definito il vettore errore locale al passo $k$ come $\mathbf{e}_k = \mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)} \in \mathbb{R}^D$, le tre metriche cinematiche sul cammino di allineamento sono formalizzate come segue:
 
-**Velocità di avanzamento semantico ($v_k$)**
+**Velocità di disallineamento semantico ($v_k$)**
+Modulo della norma $L_2$ del vettore di scostamento locale al passo $k$:
+$$v_k = \Vert{}\mathbf{e}_k\Vert{}_2 = \sqrt{\sum_{d=1}^{D} (x_{(i_k), d} - y_{(j_k), d})^2}$$
 
-$$v_k = \frac{\Vert{}\mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}\Vert{}_2}{\Delta k}$$
+**Accelerazione discreta ($a_k$)**
+Variazione prima della velocità lungo passi consecutivi del cammino (con $a_0 = 0.0$):
+$$a_k = v_k - v_{k-1} \qquad \forall k \ge 1$$
 
-**Curvatura della traiettoria semantica ($\kappa_k$)**
+**Curvatura angolare della traiettoria ($\kappa_k$)**
+Deviazione angolare del vettore di errore rispetto al passo precedente (con $\kappa_0 = 0.0$ e $\kappa_k = 0.0$ se $\Vert{}\mathbf{e}_k\Vert{}_2 = 0$ o $\Vert{}\mathbf{e}_{k-1}\Vert{}_2 = 0$):
+$$\kappa_k = 1.0 - \frac{\mathbf{e}_k \cdot \mathbf{e}_{k-1}}{\Vert{}\mathbf{e}_k\Vert{}_2 \cdot \Vert{}\mathbf{e}_{k-1}\Vert{}_2} \qquad \forall k \ge 1$$
 
-$$\kappa_k = 1 - \frac{\Delta \mathbf{v}_k \cdot \Delta \mathbf{v}_{k-1}}{\Vert{}\Delta \mathbf{v}_k\Vert{}_2 \cdot \Vert{}\Delta \mathbf{v}_{k-1}\Vert{}_2}$$
-
-dove $\Delta \mathbf{v}_k = \mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}$.
-
-**Inerzia di allineamento ($I_P$)**
-
-$$I_P = \frac{1}{K} \sum_{k=1}^{K} \left| i_k - j_k \cdot \frac{N}{M} \right|$$
+> **Nota di aderenza al codice.** L'estrazione delle metriche cinematiche è integrata nel ciclo di allineamento `TrajectoryAlignment`. La suite di test unitari verifica la consistenza dimensionale ($\vert{}{\text{kinematic}}\vert{} = \vert{}{\text{warp\_path}}\vert{}$) e la condizione al contorno iniziale ($v_0 = 0, a_0 = 0, \kappa_0 = 0$ su punti identici). Dettaglio di robustezza: il codice applica `clamp` a non-negativo sulla curvatura (`.max(0.0)`), garantendo che $\kappa_k \ge 0$ anche quando l'angolo tra vettori consecutivi supera $90^\circ$ (dove $1 - \cos\theta$ crescerebbe oltre 1); la formulazione è corretta per l'intervallo principale e il clamp è una guardia numerica.
 
 **Azione cinematica inerziale ($S_{\text{Inertial}}$)**
 
 $$S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$$
 
-> **Nota di onestà metodologica (aggiornata).** La formula $S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$ è coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`). Con la patch `365596b`, i campi `velocity`, `acceleration` e `curvature` sono ora *popolati* nel backtracking del DTW: `compute_kinematic` calcola per ogni passo del warp_path $v_k = \Vert{}e_k\Vert{}_2$, $a_k = v_k - v_{k-1}$ (derivata discreta) e $\kappa_k = 1 - (e_k \cdot e_{k-1})/(\Vert{}e_k\Vert{}_2 \cdot \Vert{}e_{k-1}\Vert{}_2)$ (deviazione angolare), con guardie sui casi limite ($\Vert{}\cdot\Vert{}_2 = 0$ → κ = 0). La definizione di velocità $v_k$ è ora descrizione del codice esistente, verificata da 4 test dedicati. L'integrazione di $S_{\text{Inertial}}$ come azione aggregata del gate resta un'estensione dichiarata, non ancora wired nel percorso decisionale.
+> **Nota di estensione dichiarata.** L'azione inerziale $S_{\text{Inertial}}$ resta la formalizzazione teorica di arrivo — coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`), ma la sua integrazione come azione aggregata del gate è un'estensione dichiarata, non ancora wired nel percorso decisionale. Le tre grandezze cinematiche individuali ($v_k, a_k, \kappa_k$) sono invece pienamente operative e coperte da test.
 
 ### 4.4 La coerenza di Pareto e l'Invariante di Isomorfismo di Livello
 
@@ -155,24 +155,18 @@ Dimostriamo che la riduzione dello spazio di ricerca mediante dominanza Pareto p
 
 ### 4.5 Il divergence token come sonda content-sensitive
 
-> **Autore**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO — *implementato e verificato da test* (patch `365596b`).
-> La sonda content-sensitive è ora codice reale: `KinematicAligner` espone `alpha` (default `0.0` in `new`, esplicito in `with_alpha`) e $\tau_{\text{div}}$ è arricchita nei due punti di allineamento (`align`, `align_with_ordered_sparse`). Vedi Sezione 5.1.
+> **Autori**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO E OPERATIVO (patch `dtw.rs`).
 
-La metrica base $\tau_{\text{div}} = |N - M| / L_{\text{path}}$ (implementata in `dtw.rs:127` e `dtw.rs:263`) misura solo il disallineamento di *lunghezza* e si annulla per ogni coppia di uguale lunghezza ($N = M$). La ridefiniamo integrandovi il costo medio di deformazione semantica $\bar{c}_{\text{path}}$:
+La metrica base $\tau_{\text{div}} = \vert{}N - M\vert{} / L_{\text{path}}$ misurava esclusivamente la divergenza strutturale di lunghezza. È stata arricchita integrando il costo medio di deformazione semantica normalizzato $\bar{c}_{\text{path}}$ (corrispondente al `normalized_score` del DTW):
 
-$$\tau_{\text{div}} = \frac{|N - M|}{L_{\text{path}}} + \alpha \cdot \bar{c}_{\text{path}}$$
+$$\tau_{\text{div}} = \frac{\vert{}N - M\vert{}}{L_{\text{path}}} + \alpha \cdot \bar{c}_{\text{path}}$$
 
-dove $\bar{c}_{\text{path}}$ è definito come:
-
-$$\bar{c}_{\text{path}} = \frac{1}{K} \sum_{k=1}^{K} \Vert{}\mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}\Vert{}_2$$
+dove $\bar{c}_{\text{path}} = \frac{1}{L_{\text{path}}} \sum_{k=0}^{L_{\text{path}}-1} d_{\text{cos}}(\mathbf{x}_{(i_k)}, \mathbf{y}_{(j_k)})$ e il parametro $\alpha \ge 0$ pondera l'impatto della componente di contenuto.
 
 La condizione di attivazione del gate ($\text{Verdict::Timeout}$) resta ancorata alla soglia parametrica:
-
 $$\tau_{\text{div}} \ge \theta$$
 
-> **Nota di onestà metodologica (aggiornata).** Con la patch `365596b` il codice implementa la versione completa $\tau_{\text{div}} = |N - M| / L_{\text{path}} + \alpha \cdot \bar{c}_{\text{path}}$ (dtw.rs, entrambi i punti di allineamento). Con `alpha = 0.0` (default di `new`) la metrica è identica alla versione base — retrocompatibilità totale con la suite esistente; con `with_alpha` si attiva il termine content-sensitive che risolve esattamente il limite smontato dalla review: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti. La soglia $\theta$ del gate resta parametrica e indipendente.
-
----
+> **Nota di aderenza al codice.** L'algoritmo supporta sia la modalità retrocompatibile ($\alpha = 0.0$ via `KinematicAligner::new`) sia la modalità content-sensitive via `KinematicAligner::with_alpha(window_size, alpha)`, calcolando la combinazione convessa in un singolo passaggio post-backtracking. Con $\alpha = 0.0$ la metrica è identica alla versione base — retrocompatibilità totale con la suite esistente; con $\alpha > 0$ si attiva il termine content-sensitive che risolve esattamente il limite smontato dalla review: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti. La soglia $\theta$ del gate resta parametrica e indipendente.
 
 ## 5. Architettura — La casa a tre stanze
 
