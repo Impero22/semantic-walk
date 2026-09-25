@@ -3,7 +3,7 @@
 **Autori**: Camillo Almadori, Iris
 **Affiliazione**: Impero22
 **Data**: 25 Settembre 2026
-**Stato**: MASTER — blocchi 2 (prima bozza Iris), 4.1, 4.2, 5, 6, 7.1 integrati. Restano DA SCRIVERE: abstract (1), background (3), metriche cinematiche (4.3), coerenza Pareto (4.4), divergence token (4.5), benchmark dataset (7.2), discussione (8), conclusioni (9), bibliografia (10).
+**Stato**: COMPLETO — tutte le sezioni dalla 1 alla 10 integrate e committate. Abstract (1) scritto per ultimo, come da regola, a quadro chiuso. Background (3) di Camillo, bibliografia (10) di Camillo. Revisione di coerenza complessiva completata (Iris). Primo master completo del paper formale.
 
 ---
 
@@ -20,12 +20,13 @@
 
 ## 1. Abstract
 
-> **Stato**: DA SCRIVERE (per ultimo — si scrive quando si sa cosa si è dimostrato).
-> Tre promesse: (1) la similarità semantica non è una distanza da misurare ma un
-> cammino da allineare; (2) l'efficienza non sta nel calcolare di più, ma nel
-> sapere quando ritirarsi (gate permissivo); (3) contributi: DTW D-dimensionale
-> con Sakoe-Chiba adattiva, coerenza Pareto come invariante, Verdict::Timeout
-> come terzo esito.
+La similarità semantica non è una distanza da misurare, ma un cammino da allineare. Il paradigma dominante del retrieval — dal collasso topologico dei bi-encoder densi al bag-of-vectors di ColBERT — tratta i documenti come punti o insiemi di vettori, trascurando l'ordine in cui il significato si dispiega. Questo lavoro introduce **Semantic-Walk**, un'architettura che restituisce all'ordine il suo ruolo: allinea traiettorie di token nello spazio latente $D$-dimensionale mediante un **Dynamic Time Warping** con distanza coseno normalizzata, guidato da una banda di Sakoe-Chiba **adattiva** al Jaccard posizionale delle guide ordered-sparse. La biiezione posizionale è preservata per *tutti* i passi — un token soppresso è un verdetto, non un'assenza — garantendo la coerenza strutturale tra canale denso e sparso.
+
+L'efficienza, però, non sta nel calcolare di più, ma nel sapere quando ritirarsi. Un **gate permissivo** filtra i candidati a costo trascurabile, con un terzo esito — `Verdict::Timeout` — che è il *ritiro del riflesso*: quando il budget si esaurisce o la sonda si ritira, il candidato passa in modo neutro e conservativo. Dimostriamo la **Permissività Strutturale**: $P(\text{FN} \mid \text{incertezza}) = 0$, ossia il gate non introduce falsi negativi per via di incertezza, e il tasso complessivo è limitato dall'errore intrinseco della sonda ($P(\text{FN}) \le \varepsilon$).
+
+I contributi sono tre: (i) il **DTW D-dimensionale** con Sakoe-Chiba adattiva, che penalizza le inversioni d'ordine laddove la prossimità statica fallisce; (ii) la **coerenza di Pareto come invariante architetturale**, con l'**Invariante di Isomorfismo di Livello** che impone il pruning post-collapse sui candidati accumulati, mai sui rami; (iii) il **Verdict::Timeout** come terzo esito del gate, che rende l'efficienza una proprietà strutturale, non un'euristica. Su dataset sintetici e reali (Role-Reversal & Causality), Semantic-Walk supera i baseline ColBERT MaxSim e DTW Naive nel discriminare inversioni sintattiche e permutazioni causali.
+
+**Keywords**: similarità semantica, Dynamic Time Warping, late interaction, gate permissivo, retrieval ordinato.
 
 ---
 
