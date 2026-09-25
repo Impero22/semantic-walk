@@ -404,13 +404,8 @@ Chiudiamo con onestà. Questo lavoro apre più porte di quante ne chiuda: il par
 
 ## 10. Bibliografia
 
-> **Stato**: DA SCRIVERE (Camillo presidia).
-
----
-
-## Note operative
-
-1. Ordine di scrittura: 4 (matematica) → 6 (gate) → 5 (architettura) → 7 (benchmark) → 2 (intro) → 8-9 (futuro/conclusioni) → 1 (abstract, per ultimo).
-2. La prosa Medium NON è la base: è il ponte divulgativo a valle.
-3. Prima di ogni blocco, registrare nel tracciamento (regola di Federico).
-4. Da decidere con Camillo: dataset per il benchmark finale.
+1. Khattab, O., & Zaharia, M. (2020). ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT. Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval, 39–48.
+2. Sakoe, H., & Chiba, S. (1978). Dynamic programming algorithm optimization for spoken word recognition. IEEE Transactions on Acoustics, Speech, and Signal Processing, 26(1), 43–49.
+3. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is all you need. Advances in Neural Information Processing Systems, 30, 5998–6008.
+4. Müller, M. (2007). Dynamic Time Warping. Information Retrieval for Music and Motion, Springer, 69–84.
+5. Knuth, D. E. (1997). The Art of Computer Programming, Volume 2: Seminumerical Algorithms (3rd ed.). Addison-Wesley.
