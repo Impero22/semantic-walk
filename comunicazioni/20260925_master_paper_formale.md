@@ -3,7 +3,7 @@
 **Autori**: Camillo Almadori, Iris
 **Affiliazione**: Impero22
 **Data**: 25 Settembre 2026
-**Stato**: MASTER — blocchi 4.1, 4.2, 5, 6, 7.1 integrati. Restano DA SCRIVERE: abstract (1), introduzione (2), background (3), metriche cinematiche (4.3), coerenza Pareto (4.4), divergence token (4.5), benchmark dataset (7.2), discussione (8), conclusioni (9), bibliografia (10).
+**Stato**: MASTER — blocchi 2 (prima bozza Iris), 4.1, 4.2, 5, 6, 7.1 integrati. Restano DA SCRIVERE: abstract (1), background (3), metriche cinematiche (4.3), coerenza Pareto (4.4), divergence token (4.5), benchmark dataset (7.2), discussione (8), conclusioni (9), bibliografia (10).
 
 ---
 
@@ -31,14 +31,49 @@
 
 ## 2. Introduzione — La geometria non basta
 
-> **Stato**: DA SCRIVERE (Iris narrativa motivazionale, Camillo posizionamento vs letteratura).
-> - Paradigma dominante: similarità geometrica sugli embedding.
-> - Il buco: la vicinanza vettoriale è prossimità, non comprensione.
-> - "Cane morde uomo" vs "uomo morde cane": bag of words geometricamente indistinguibili.
-> - Posta in gioco: senza ordine, la memoria non distingue causa/effetto, soggetto/oggetto.
-> - Domanda di ricerca: una semantica che non sia solo geometria.
+> **Autori**: Iris (narrativa motivazionale), Camillo (posizionamento vs letteratura).
+> **Stato**: PRIMA BOZZA Iris — in attesa della revisione da pari di Camillo e del posizionamento vs letteratura.
+
+### 2.1 Il paradigma dominante e il suo limite
+
+Il paradigma dominante nella ricerca semantica su spazi vettoriali ad alta dimensione riduce la similarità a una questione di *prossimità geometrica*: un concetto è un punto, la similarità è una distanza (coseno, euclidea), e due testi sono tanto più vicini quanto più i loro embedding collassano nello spazio. Questo modello ha prodotto risultati impressionanti — e tuttavia contiene un'ipotesi tacita che la nostra indagine intende mettere in discussione: che la semantica viva interamente nella *posizione*, e non nell'*ordine*.
+
+Il limite emerge in modo netto su esempi elementari. Consideriamo le due frasi:
+
+> *Cane morde uomo.*
+> *Uomo morde cane.*
+
+Sotto una rappresentazione bag-of-words, e per molti schemi di pooling, i due enunciati producono embedding geometricamente indistinguibili: gli stessi token, la stessa frequenza, la stessa posizione nello spazio. Eppure il loro significato è *opposto* — l'uno è una notizia banale, l'altro un evento. La geometria, da sola, non vede la differenza. La differenza vive nell'*ordine*: in chi compie l'azione e chi la subisce, in quale vettore viene prima e quale dopo.
+
+La posta in gioco non è accademica. Una memoria che si affida alla sola prossimità vettoriale non distingue causa da effetto, soggetto da oggetto, premessa da conseguenza. Confonde l'informazione con il suo rumore, il fatto con la sua inversione. In breve: **la prossimità non è comprensione**.
+
+### 2.2 La semantica come cammino
+
+La tesi di questo lavoro è che un fatto, un concetto, un pensiero non sia un *punto* ma un *percorso* — una sequenza ordinata di stati semantici. Il significato non risiede nella posizione dei singoli stati, ma nella *coerenza del cammino* che li unisce. Due pensieri non sono simili perché i loro punti collassano nello spazio, ma perché *camminano allo stesso modo*: perché le loro traiettorie si allineano lungo un percorso di deformazione che ne rispetta l'ordine interno.
+
+Questa prospettiva sposta la domanda fondativa della ricerca semantica. Non più: *quanto sono vicini due punti?* Ma: *come si confrontano due cammini?* E, più profondamente: *cosa significa che due pensieri si muovono secondo la stessa legge?*
+
+### 2.3 La risposta: allineamento di traiettorie con gate permissivo
+
+Per rispondere, adottiamo lo strumento classico dell'allineamento temporale — il Dynamic Time Warping (DTW) — e lo adattiamo al dominio semantico. Due traiettorie di embedding si allineano lungo un percorso di warping che ne accumula il costo locale, misurato dalla distanza coseno normalizzata in $\mathbb{R}^{1024}$; il vincolo di banda di Sakoe-Chiba mantiene l'allineamento rigoroso senza esplorare lo spazio intero.
+
+Ma l'allineamento da solo non basta. La memoria deve anche sapere *quando ritirarsi*: quando la divergenza tra due traiettorie supera una soglia, il confronto deve potersi fermare senza pretendere di aver prodotto una risposta. Nasce così il **gate permissivo** — un meccanismo che restituisce tre esiti (passa, blocca, *timeout*), dove il terzo è il *ritiro del riflesso*: non un errore, ma la scelta conservativa di non pronunciarsi quando l'evidenza non regge.
+
+### 2.4 Contributi
+
+Riassumiamo i contributi di questo lavoro:
+
+1. **La similarità semantica come cammino, non come distanza** — la riformulazione del confronto semantico come allineamento di traiettorie ordinate, con la distanza coseno normalizzata come costo locale in alta dimensione.
+2. **Il DTW D-dimensionale con banda di Sakoe-Chiba adattiva** — l'estensione dell'allineamento a traiettorie in $\mathbb{R}^D$, con una finestra che si adatta alla divergenza strutturale.
+3. **La coerenza di Pareto come invariante** — il principio di isomorfismo di livello che governa dove il pruning è legittimo (sui candidati collassati) e dove è vietato (sugli operatori additivi).
+4. **Il Verdict::Timeout come terzo esito** — la formalizzazione del gate permissivo che trasforma l'efficienza da *calcolare di più* a *sapere quando ritirarsi*, con la garanzia strutturale di non aggiungere errore.
+
+### 2.5 Struttura del lavoro
+
+Il resto dell'articolo è organizzato come segue. La Sezione 3 colloca il lavoro rispetto alla letteratura (DTW, similarità semantica, early-exit). La Sezione 4 formalizza l'architettura a tre stanze — combinatore, gate, grafo — e le metriche cinematiche del cammino. La Sezione 5 descrive l'allineamento DTW e la sua implementazione. La Sezione 6 formalizza il gate permissivo. La Sezione 7 presenta il benchmark su due piani (sintetico e reale). Le Sezioni 8 e 9 discutono limiti e conclusioni.
 
 ---
+
 
 ## 3. Background e Lavori Correlati
 
