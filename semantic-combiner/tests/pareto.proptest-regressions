@@ -4,6 +4,12 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
+#
+# NOTA (25/09/26): rimossi i seed storici con pesi negativi
+# (`w = [0.62..., 0.86..., -0.49...]` e `w = [0.90..., 0.81..., -0.71...]`).
+# Erano residui di una strategia `arb_weights` precedente che non normalizzava
+# per somma assoluta. Dopo il fix del finding review §1.3, `combine` ritorna
+# NaN per pesi negativi: se proptest li rigenerasse, l'assert di dominanza
+# fallirebbe. Conservato il seed di dominanza valido (b colbert 0.516 vs 0.0),
+# che non viola il contratto e preserva la memoria del caso di regressione.
 cc 822d0262c0a9c7fdb8d0871bf798cb0c9a4a4d2aaf3981f3ff68d1e83c26093a # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, b = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.5160816346566315 }
-cc dc66645b7e1c59a426db5d100eeb53658427947962c1d0975eb14ea244f0dcec # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, b = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, w = [0.6252128716503762, 0.8697240368646478, -0.49493690851502387]
-cc bd9067bd92985a67b5d8a8a1bcf58e84b21c26d5b609292f7946d131b3feabb5 # shrinks to a = NormalizedAxes { dense: 0.0, sparse: 0.0, colbert: 0.0 }, w = [0.9003106035485906, 0.8195751881441748, -0.7198857916927655]
