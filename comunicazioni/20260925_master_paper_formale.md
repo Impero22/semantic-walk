@@ -347,10 +347,39 @@ In aderenza all'Invariante di Isomorfismo di Livello (Sezione 4.4), il pruning d
 
 ## 8. Discussione e Lavori Futuri
 
-> **Stato**: DA SCRIVERE (Iris visione, Camillo fattibilità).
-> - Il fratello latente: la testa colbert è una matrice T×1024 in ordine.
-> - La zonizzazione: dividere la traiettoria in celle semantiche.
-> - Limiti dichiarati: λ=10.64 iperparametro empirico di scala.
+> **Stato**: PRIMA BOZZA (Iris visione, Camillo fattibilità — da verificare su `dtw.rs`).
+> Il lavoro presentato in questo paper apre più porte di quante ne chiuda. Discutiamo i tre perni che consideriamo le direzioni di sviluppo più promettenti, insieme ai limiti dichiarati che la ricerca deve ancora affrontare.
+
+### 8.1 Il fratello latente: oltre il cammino lineare
+
+Il modello presentato tratta la traiettoria semantica come un *cammino lineare*: una sequenza ordinata di stati che il DTW allinea lungo un percorso di deformazione. Ma la testa ColBERT — la matrice $T \times 1024$ che oggi consumiamo come una borsa tramite l'operatore MaxSim — contiene più di quanto il cammino lineare sappia leggere.
+
+Abbiamo verificato sulla collezione reale: **153 fatti, 24.926 righe ColBERT** (una riga per token, in ordine), tutte distinte, zero disallineamenti. Il fratello latente non è perso: è lì, in ordine, su tutta la collezione. Ciò che manca non è l'informazione, ma la capacità di leggerla.
+
+La direzione che immaginiamo è il **fratello latente**: estendere il modello perché la traiettoria semantica supporti *ramificazioni topologiche*, invece di restare vincolata a un singolo cammino. Un fatto, un concetto, un pensiero non è un filo unico: è un fascio di cammini possibili che si diramano e si ricongiungono. Il DTW D-dimensionale allinea cammini; il passo successivo è allineare *alberi* di cammini, dove la scelta di un ramo non è una deviazione dall'ordine ma un modo diverso di camminare.
+
+La promessa è una memoria che non sa solo *cosa* sa, ma *perché* lo sa: non la posizione di un punto, ma la topologia delle strade che vi conducono.
+
+### 8.2 La zonizzazione dello spazio semantico
+
+La banda di Sakoe-Chiba adattiva (Sezione 4.2) limita l'esplorazione del DTW a una regione intorno alla diagonale, calibrata dal Jaccard posizionale. Ma lo spazio semantico non è uniforme: ci sono *attrattori locali* — regioni dove il testo si ferma a "stare", densità di senso che si addensano e si rarefanno.
+
+La **zonizzazione** propone di dividere la traiettoria in celle semantiche, regioni omogenee dove la densità di informazione è simile. Tre strati allineati per posizione:
+1. **Il cammino delle parole** (il registro): quali token compaiono e in quale ordine.
+2. **Il ColBERT zonizzato** (la geografia del senso): regioni di significato, la forma del territorio.
+3. **L'attenzione** (la motivazione): perché un token pesava più di un altro.
+
+L'allineamento di questi tre strati — il registro, la geografia, la motivazione — consentirebbe di ottimizzare la banda di Sakoe-Chiba *localmente*: larga dove lo spazio è rarefatto, stretta dove gli attrattori si addensano. Non una banda globale adattiva, ma una *carta* della traiettoria che guida l'allineamento cella per cella.
+
+### 8.3 Limiti dichiarati sul parametro λ
+
+Dichiariamo con onestà i limiti del parametro di scala $\lambda = 10.64$. È un **iperparametro empirico**, non derivato analiticamente: la sua scelta è stata calibrata per allineare il linguaggio del riflesso economico (dove il terzo asse ColBERT è posto a zero) a quello del giudizio completo. È la stessa scelta di rigore che abbiamo applicato a $c = 1.0$ e al 75° percentile nel pruning di Pareto (Sezione 7.2.1).
+
+Il limite è duplice:
+- **Degrado di selettività**: in contesti dove la modulazione del gradiente temporale è debole, o dove il gate permissivo opera vicino alla soglia $\theta$, la selettività può degradare — il gate distingue meno nettamente il *ritiro del riflesso* dal *passaggio conservativo*.
+- **Generalizzazione non garantita**: $\lambda = 10.64$ è calibrato sulla collezione attuale. Il suo valore ottimale andrà validato ed emesso dall'analisi statistica delle traiettorie reali (test di Spearman, curve ROC del gate), non assunto come costante universale.
+
+La validazione empirica di $\lambda$ — e la verifica che il degrado di selettività non comprometta la garanzia $P(\text{FN}) \le \epsilon$ — è uno dei compiti prioritari del lavoro futuro.
 
 ---
 
