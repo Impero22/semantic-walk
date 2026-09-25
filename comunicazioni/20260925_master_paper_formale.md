@@ -116,8 +116,8 @@ In questo modo, traiettorie con scarsa concordanza posizionale subiscono sia una
 
 ### 4.3 Le metriche cinematiche
 
-> **Autore**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO — *proposta teorica, implementazione in corso*.
-> Le formule descrivono la caratterizzazione teorica del moto nel campo semantico; l'integrazione progressiva del calcolo dinamico di $v_k$ nel motore DTW è in corso (vedi Sezione 5.1).
+> **Autore**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO — *implementato e verificato da test* (patch `365596b`).
+> Le metriche cinematiche sono calcolate nel backtracking del DTW: `compute_kinematic` popola `TrajectoryAlignment::kinematic` con un `KinematicStep` (v/a/κ) per ogni punto del warp_path. Vedi Sezione 5.1.
 
 Le tre grandezze cinematiche sono calcolate lungo il cammino di allineamento $P = \{(i_k, j_k)\}$ per $k = 1 \dots K$. L'azione inerziale costituisce un transfer originale dal *minimum-jerk model* della robotica (Flash & Hogan, 1985) all'Information Retrieval.
 
@@ -139,7 +139,7 @@ $$I_P = \frac{1}{K} \sum_{k=1}^{K} \left| i_k - j_k \cdot \frac{N}{M} \right|$$
 
 $$S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$$
 
-> **Nota di onestà metodologica.** La formula $S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$ è coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`). Tuttavia, nel codice attuale i campi `velocity`, `acceleration` e `curvature` sono *dichiarati ma non popolati* da un calcolo di avanzamento lungo una traiettoria reale: il DTW non usa ancora metriche cinematiche. La definizione di velocità $v_k$ è pertanto una formalizzazione teorica di arrivo, non la descrizione del codice esistente. Il paper la dichiara come tale — la suite di test è pronta a verificarne l'implementazione quando avverrà.
+> **Nota di onestà metodologica (aggiornata).** La formula $S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$ è coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`). Con la patch `365596b`, i campi `velocity`, `acceleration` e `curvature` sono ora *popolati* nel backtracking del DTW: `compute_kinematic` calcola per ogni passo del warp_path $v_k = \Vert{}e_k\Vert{}_2$, $a_k = v_k - v_{k-1}$ (derivata discreta) e $\kappa_k = 1 - (e_k \cdot e_{k-1})/(\Vert{}e_k\Vert{}_2 \cdot \Vert{}e_{k-1}\Vert{}_2)$ (deviazione angolare), con guardie sui casi limite ($\Vert{}\cdot\Vert{}_2 = 0$ → κ = 0). La definizione di velocità $v_k$ è ora descrizione del codice esistente, verificata da 4 test dedicati. L'integrazione di $S_{\text{Inertial}}$ come azione aggregata del gate resta un'estensione dichiarata, non ancora wired nel percorso decisionale.
 
 ### 4.4 La coerenza di Pareto e l'Invariante di Isomorfismo di Livello
 
@@ -155,7 +155,8 @@ Dimostriamo che la riduzione dello spazio di ricerca mediante dominanza Pareto p
 
 ### 4.5 Il divergence token come sonda content-sensitive
 
-> **Autore**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO — *formulazione di riferimento e target per il gate, implementazione in corso*.
+> **Autore**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO — *implementato e verificato da test* (patch `365596b`).
+> La sonda content-sensitive è ora codice reale: `KinematicAligner` espone `alpha` (default `0.0` in `new`, esplicito in `with_alpha`) e $\tau_{\text{div}}$ è arricchita nei due punti di allineamento (`align`, `align_with_ordered_sparse`). Vedi Sezione 5.1.
 
 La metrica base $\tau_{\text{div}} = |N - M| / L_{\text{path}}$ (implementata in `dtw.rs:127` e `dtw.rs:263`) misura solo il disallineamento di *lunghezza* e si annulla per ogni coppia di uguale lunghezza ($N = M$). La ridefiniamo integrandovi il costo medio di deformazione semantica $\bar{c}_{\text{path}}$:
 
@@ -169,7 +170,7 @@ La condizione di attivazione del gate ($\text{Verdict::Timeout}$) resta ancorata
 
 $$\tau_{\text{div}} \ge \theta$$
 
-> **Nota di onestà metodologica.** Il codice attuale implementa la sola componente di lunghezza $|N - M| / L_{\text{path}}$ (dtw.rs:127 e 263). Il termine content-sensitive $\alpha \cdot \bar{c}_{\text{path}}$ è la *formulazione di riferimento e target* per il gate — un'evoluzione dichiarata, la cui implementazione è in corso. La sonda content-sensitive risolve esattamente il limite che la review ha smontato: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti.
+> **Nota di onestà metodologica (aggiornata).** Con la patch `365596b` il codice implementa la versione completa $\tau_{\text{div}} = |N - M| / L_{\text{path}} + \alpha \cdot \bar{c}_{\text{path}}$ (dtw.rs, entrambi i punti di allineamento). Con `alpha = 0.0` (default di `new`) la metrica è identica alla versione base — retrocompatibilità totale con la suite esistente; con `with_alpha` si attiva il termine content-sensitive che risolve esattamente il limite smontato dalla review: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti. La soglia $\theta$ del gate resta parametrica e indipendente.
 
 ---
 
@@ -185,6 +186,8 @@ $$\tau_{\text{div}} \ge \theta$$
 ### 5.1 Stato Attuale dell'Implementazione (`dtw.rs`)
 
 L'efficienza del ciclo di query richiede un'analisi rigorosa dell'impronta di memoria nel percorso critico di matching. L'attuale allocazione in `dtw.rs` gestisce la matrice delle distanze mediante allocazione dinamica su heap $N \times M$ (`vec![vec![f64::INFINITY; m + 1]; n + 1]`), accompagnata da un vettore dinamicamente ridimensionato per la ricostruzione del cammino ottimo $W^*$ (`warp_path`). Questa struttura garantisce chiarezza nella fase di prototipazione ma introduce chiamate al sistema di memoria durante l'esecuzione delle query.
+
+**Stato corrente (patch `365596b`).** Nel backtracking, `compute_kinematic` popola `TrajectoryAlignment::kinematic` con un `KinematicStep` per ogni punto del warp_path: $v_k = \Vert{}e_k\Vert{}_2$, $a_k = v_k - v_{k-1}$, $\kappa_k = 1 - (e_k \cdot e_{k-1})/(\Vert{}e_k\Vert{}_2 \cdot \Vert{}e_{k-1}\Vert{}_2)$, con guardie sui casi limite. Inoltre `KinematicAligner` espone `alpha` (default `0.0`) per la sonda content-sensitive $\tau_{\text{div}} = |N-M|/L + \alpha \cdot \bar{c}_{\text{path}}$. L'allocazione heap $N \times M$ resta invariata — la transizione al runtime zero-allocation è la roadmap della Sezione 5.2.
 
 ### 5.2 Optimization Roadmap verso il Zero-Allocation Runtime
 
