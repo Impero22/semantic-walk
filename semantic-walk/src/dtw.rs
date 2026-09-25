@@ -210,7 +210,18 @@ impl KinematicAligner {
 
             // Finestra dinamica per questa posizione, in base al Jaccard
             // posizionale tra i frame ordered-sparse.
-            let j = sparse_a.positional_jaccard(sparse_b, i - 1);
+            //
+            // Quando le sequenze hanno lunghezza diversa (n > m), per le
+            // posizioni `i-1 >= m` la sequenza B non ha un frame corrispondente:
+            // `positional_jaccard` accederebbe a `offsets[i]` di `sparse_b`
+            // oltre il limite (panic in libreria). In quella zona non esiste
+            // concordanza posizionale con B, quindi il DTW deve allargare la
+            // banda al massimo (comportamento coerente con concordanza bassa).
+            let j = if i - 1 < m {
+                sparse_a.positional_jaccard(sparse_b, i - 1)
+            } else {
+                0.0
+            };
             let w_i = if j >= 0.7 {
                 w_min
             } else if j < 0.3 {
@@ -414,6 +425,27 @@ mod tests {
         let res = aligner
             .align_with_ordered_sparse(&seq, &seq, &sa, &sb, 0, 5, 1)
             .unwrap();
+        assert!(res.is_some());
+    }
+
+    /// Regressione per il finding critico della review esterna (§4.3 dtw):
+    /// con `n > m` (sequenze dense di lunghezza diversa) il DTW accedeva a
+    /// `positional_jaccard(sparse_b, i-1)` oltre il limite di `sparse_b`,
+    /// causando un panic in libreria. Ora le posizioni oltre `m` usano banda
+    /// massima (concordanza nulla) e la funzione ritorna senza panico.
+    #[test]
+    fn test_n_maggiore_di_m_non_panica() {
+        let aligner = KinematicAligner::new(3);
+        // Sequenza A più lunga di B: n = 5, m = 3.
+        let seq_a = seq_identica(5);
+        let seq_b = seq_identica(3);
+        let sa = sparse_identico(5);
+        let sb = sparse_identico(3);
+        let res = aligner
+            .align_with_ordered_sparse(&seq_a, &seq_b, &sa, &sb, 0, 1, 3)
+            .unwrap();
+        // Non deve panic: ritorna un allineamento (o ritiro geometrico),
+        // mai un errore di out-of-bounds.
         assert!(res.is_some());
     }
 }

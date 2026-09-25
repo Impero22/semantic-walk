@@ -4,6 +4,8 @@
 //! di qualità. Ogni fatto si collega ai suoi k vicini più simili, ma solo se
 //! il punteggio supera la soglia minima.
 
+use std::collections::HashMap;
+
 use crate::{Edge, Graph, GraphConfig, NodeId};
 use semantic_combiner::{
     combine, pareto_compare, NormalizedAxes, ParetoOrder, LAMBDA_CALIBRATO,
@@ -82,6 +84,21 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
 
     let mut archi_vec: Vec<(u64, u64, f64, f64, f64, f64)> = Vec::new();
 
+    // Indice `id -> &Fatto` pre-costruito una sola volta (O(N)).
+    //
+    // Senza questo indice, per ogni coppia di fatti il ciclo di costruzione
+    // degli archi faceva `fatti.iter().find(|f| f.id == altro_id).unwrap()`:
+    // una scansione lineare O(N) dentro un ciclo già O(N²), portando il costo
+    // complessivo a O(N³). Con l'indice, il recupero del fatto per id è O(1).
+    //
+    // Nota sul `unwrap`: è sicuro perché `altro_id` proviene da `candidati`,
+    // che è costruito iterando esattamente gli elementi di `fatti` — quindi
+    // ogni id presente nei candidati esiste di sicuro nell'indice. Il
+    // `HashMap::get` ritorna `None` solo per un id assente, che qui non può
+    // verificarsi per costruzione.
+    let indice_fatti: HashMap<NodeId, &Fatto> =
+        fatti.iter().map(|f| (f.id, f)).collect();
+
     for (i, fatto) in fatti.iter().enumerate() {
         let mut candidati: Vec<(f64, NormalizedAxes, NodeId)> = fatti
             .iter()
@@ -129,7 +146,10 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
                 if from == to {
                     continue;
                 }
-                let altro = fatti.iter().find(|f| f.id == altro_id).unwrap();
+                // Recupero O(1) tramite l'indice pre-costruito (vedi sopra).
+                // In precedenza: `fatti.iter().find(...).unwrap()` — O(N) per
+                // ogni arco, portando l'intera costruzione a O(N³).
+                let altro = indice_fatti[&altro_id];
                 archi_vec.push((
                     from,
                     to,

@@ -136,15 +136,23 @@ pub fn pareto_compare(lhs: &NormalizedAxes, rhs: &NormalizedAxes) -> ParetoOrder
 /// dominanza è stretta. Questa proprietà è testata da [`proptest`] in
 /// `tests/pareto.rs`.
 pub fn combine(axes: &NormalizedAxes, weights: [f64; 3]) -> f64 {
-    debug_assert!(
-        weights.iter().all(|w| w.is_finite() && *w >= 0.0),
-        "i pesi devono essere finiti e non-negativi"
-    );
+    // Validazione esplicita dei pesi (finding review esterna §1.3). I
+    // `debug_assert!` precedenti erano compilati via in release: pesi negativi
+    // o non normalizzati producevano silenziosamente un punteggio errato nel
+    // cuore della fusione trivettoriale (consumato da gate/graph/quantum).
+    //
+    // Ora la validazione è sempre attiva e, per pesi invalidi, `combine`
+    // ritorna NaN: coerente con la filosofia del sistema ("NaN come ritiro
+    // geometrico", non come estremo). Un contratto violato in release produce
+    // un segnale definito (NaN propagato a valle) invece di un punteggio
+    // silenziosamente errato.
+    if !weights.iter().all(|w| w.is_finite() && *w >= 0.0) {
+        return f64::NAN;
+    }
     let sum: f64 = weights.iter().sum();
-    debug_assert!(
-        (sum - 1.0).abs() < 1e-9,
-        "i pesi devono sommare a 1 (somma = {sum})"
-    );
+    if (sum - 1.0).abs() >= 1e-9 {
+        return f64::NAN;
+    }
 
     axes.dense * weights[0] + axes.sparse * weights[1] + axes.colbert * weights[2]
 }
@@ -266,6 +274,29 @@ mod tests {
         // tutto su sparse (che è 0)
         let score = combine(&axes, [0.0, 1.0, 0.0]);
         assert!(score.abs() < 1e-12);
+    }
+
+    /// Regressione per il finding review esterna §1.3: la validazione dei pesi
+    /// usava solo `debug_assert!`, compilato via in release. Ora `combine`
+    /// ritorna NaN per pesi invalidi (negativi, non finiti, somma ≠ 1),
+    /// coerente con la filosofia del ritiro geometrico — mai un punteggio
+    /// silenziosamente errato.
+    #[test]
+    fn combine_pesi_invalidi_ritorna_nan() {
+        let axes = NormalizedAxes {
+            dense: 1.0,
+            sparse: 1.0,
+            colbert: 1.0,
+        };
+        // Peso negativo.
+        assert!(combine(&axes, [-0.1, 0.6, 0.5]).is_nan());
+        // Somma ≠ 1.
+        assert!(combine(&axes, [0.5, 0.5, 0.5]).is_nan());
+        // Peso non finito.
+        assert!(combine(&axes, [f64::NAN, 0.5, 0.5]).is_nan());
+        assert!(combine(&axes, [f64::INFINITY, 0.0, 0.0]).is_nan());
+        // Pesi validi: non NaN.
+        assert!(!combine(&axes, [0.215, 0.552, 0.233]).is_nan());
     }
 }
 #[cfg(test)]
