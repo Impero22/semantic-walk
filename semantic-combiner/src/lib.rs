@@ -62,7 +62,27 @@ impl NormalizedAxes {
         sparse_lambda: f64,
     ) -> Self {
         let dense = saturate01((dense + 1.0) / 2.0);
-        let sparse = saturate01(1.0 - (-sparse_lambda * sparse).exp());
+        // Validazione di `sparse_lambda` (finding review esterna §1.3/#11).
+        // Il lambda governa la saturazione esponenziale dello sparse:
+        // `sparse = 1 - e^(-λ·s)`. Un λ non positivo finito produce risultati
+        // non documentati:
+        //   * λ = 0        → `1 - e^0 = 0` → sparse sempre 0 (canale morto)
+        //   * λ < 0        → `-λ·s > 0` → `1 - e^(positivo) < 0` → satura a 0
+        //   * λ = -inf     → `1 - e^(+inf) = -inf` → satura a 0
+        //   * λ = +inf     → per s = 0 produce `-inf·0 = NaN` (inconsistente)
+        //   * λ = NaN      → propaga NaN (coerente col ritiro)
+        //
+        // In tutti i casi il canale sparse verrebbe schiacciato a un valore
+        // silenziosamente errato (o inconsistente) invece di segnalare il
+        // problema. Coerente con la filosofia del sistema ("NaN come ritiro
+        // geometrico, non come estremo"), un λ invalido rende lo sparse NaN:
+        // il consumatore vede l'incapacità di valutare quel canale e si
+        // ritira, invece di fidarsi di uno sparse fabbricato a zero.
+        let sparse = if sparse_lambda.is_finite() && sparse_lambda > 0.0 {
+            saturate01(1.0 - (-sparse_lambda * sparse).exp())
+        } else {
+            f64::NAN
+        };
         let colbert = saturate01((colbert + 1.0) / 2.0);
         NormalizedAxes {
             dense,
@@ -226,6 +246,40 @@ mod tests {
         assert!((axes.dense - 0.75).abs() < 1e-12); // (0.5+1)/2 = 0.75
         assert!(axes.sparse.is_nan());
         assert!((axes.colbert - 0.75).abs() < 1e-12);
+    }
+
+    /// Regressione per il finding review esterna §1.3/#11: `normalize` non
+    /// validava `sparse_lambda`. Un λ non positivo finito schiacciava il
+    /// canale sparse a 0 (o a un valore inconsistente) silenziosamente.
+    /// Coerente con la filosofia del ritiro geometrico, un λ invalido ora
+    /// rende lo sparse NaN: il consumatore vede l'incapacità di valutare
+    /// quel canale invece di fidarsi di uno sparse fabbricato a zero.
+    #[test]
+    fn sparse_lambda_invalido_ritorna_nan() {
+        // λ = 0 → canale morto (sempre 0): ora NaN.
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, 0.0);
+        assert!(axes.sparse.is_nan());
+        // λ < 0 → saturazione invertita: ora NaN.
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, -1.0);
+        assert!(axes.sparse.is_nan());
+        // λ = -inf → ora NaN.
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, f64::NEG_INFINITY);
+        assert!(axes.sparse.is_nan());
+        // λ = +inf → inconsistente (per s=0 dà NaN): ora NaN.
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, f64::INFINITY);
+        assert!(axes.sparse.is_nan());
+        // λ = NaN → propaga NaN (già coerente col ritiro).
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, f64::NAN);
+        assert!(axes.sparse.is_nan());
+        // Un λ invalido non contagia gli altri canali.
+        let axes = NormalizedAxes::normalize(1.0, 0.5, 1.0, 0.0);
+        assert!((axes.dense - 1.0).abs() < 1e-12);
+        assert!(axes.sparse.is_nan());
+        assert!((axes.colbert - 1.0).abs() < 1e-12);
+        // λ valido positivo → sparse normalizzato normalmente.
+        let axes = NormalizedAxes::normalize(0.0, 0.5, 0.0, 1.0);
+        assert!(!axes.sparse.is_nan());
+        assert!((axes.sparse - (1.0 - (-0.5f64).exp())).abs() < 1e-12);
     }
 
     #[test]
