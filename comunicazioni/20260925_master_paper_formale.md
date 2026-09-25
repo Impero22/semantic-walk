@@ -47,6 +47,12 @@ Sotto una rappresentazione bag-of-words, e per molti schemi di pooling, i due en
 
 La posta in gioco non è accademica. Una memoria che si affida alla sola prossimità vettoriale non distingue causa da effetto, soggetto da oggetto, premessa da conseguenza. Confonde l'informazione con il suo rumore, il fatto con la sua inversione. In breve: **la prossimità non è comprensione**.
 
+#### 2.1.1 Posizionamento rispetto alla letteratura
+
+I modelli di retrieval correnti affrontano il problema dell'ordinamento sequenziale secondo due paradigmi prevalenti:
+1. **Bi-encoder Densi (Dense Retrieval)**: Proiettano l'intera sequenza di input in un unico vettore $z \in \mathbb{R}^D$. Benché efficiente per la ricerca tramite Nearest Neighbor (ANN), il meccanismo di pooling distrugge la struttura topologica del cammino temporale, trattando la sequenza come un punto statico.
+2. **Late-Interaction (es. ColBERT MaxSim)**: Mantengono una matrice di vettori per ogni token e calcolano la similarità aggregando le distanze cosmiche massime per token. Tuttavia, l'operatore MaxSim è topologicamente non orientato: confronta bag-of-vectors senza imporre vincoli sulla sequenzialità causale o sulla direzione del flusso informativo.
+
 ### 2.2 La semantica come cammino
 
 La tesi di questo lavoro è che un fatto, un concetto, un pensiero non sia un *punto* ma un *percorso* — una sequenza ordinata di stati semantici. Il significato non risiede nella posizione dei singoli stati, ma nella *coerenza del cammino* che li unisce. Due pensieri non sono simili perché i loro punti collassano nello spazio, ma perché *camminano allo stesso modo*: perché le loro traiettorie si allineano lungo un percorso di deformazione che ne rispetta l'ordine interno.
@@ -326,14 +332,18 @@ Per valutare quantitativamente il contributo di ogni singolo modulo, il benchmar
 
 ### 7.2 Due piani, due dataset
 
-> **Stato**: DA SCRIVERE (Camillo benchmark/tabelle, Iris onestà metodologica).
-> - Sintetici controllati (LCG 53 bit) — per la matematica.
-> - Collezione fatti reale (>200 fatti) — per la validazione.
-> - Onestà: il Pareto NON risparmia sul collapse; pruning branch-level VIETATO
->   per operatori additivi (Isomorfismo di Livello); Pareto legittimo SOLO dopo
->   il collapse, sui candidati collassati.
+Per convalidare rigorosamente l'architettura *Semantic-Walk*, il banco di prova è stato strutturato su due livelli complementari: un piano sintetico controllato per la verifica matematica dei limiti formali e un piano reale basato su collezioni di fatti.
 
----
+#### 7.2.1 Piano Sintetico Controllato (Generatore LCG)
+I test di stabilità e di dominanza di Pareto impiegano un generatore congruenziale lineare (LCG) deterministico $X_{n+1} = (a \cdot X_n + c) \pmod{2^{64}}$ con parametri $a = 6364136223846793005$ e $c = 1442695040888963407$. L'estrazione garantisce una distribuzione uniforme sulla mantissa a 53 bit (equivalente alla precisione di un tipo `f64`), consentendo di isolare i limiti teorici del pruning senza introdurre rumore semantico estrinseco.
+
+#### 7.2.2 Collezione Fatti Reali (Dataset A e Dataset B)
+La validazione sperimentale poggia su due dataset reali distinti:
+* **Dataset A (Role-Reversal & Causality, 240 coppie)**: Composto da 120 fatti reali e 120 varianti controllate ottenute tramite inversione dei ruoli sintattici (soggetto/oggetto) o permutazione causale. Costituisce il test che misura la capacità del DTW di penalizzare le inversioni di sequenza laddove la prossimità vettoriale statica fallisce, ponendo a diretto confronto *Semantic-Walk* con i baseline L1 (ColBERT MaxSim) e L2 (DTW Naive).
+* **Dataset B (Fact-Perturbation, 250 fatti)**: Composto da 50 fatti base e 200 perturbazioni graduali, impiegato per la costruzione empirica della curva ROC del gate permissivo (L5) e la taratura della soglia $\theta$ sul `Verdict::Timeout`.
+
+#### 7.2.3 Onestà Metodologica e Invariante di Isomorfismo
+In aderenza all'Invariante di Isomorfismo di Livello (Sezione 4.4), il pruning di Pareto è applicato esclusivamente post-collapse sui candidati accumulati e non a livello di singolo branch durante l'accumulo additivo della matrice delle distanze. L'algoritmo garantisce un lower bound $\Omega(N)$ privo di soppressioni indebite di falsi negativi.
 
 ## 8. Discussione e Lavori Futuri
 
