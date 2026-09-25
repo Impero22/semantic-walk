@@ -83,12 +83,16 @@ Il resto dell'articolo è organizzato come segue. La Sezione 3 colloca il lavoro
 
 ## 3. Background e Lavori Correlati
 
-> **Stato**: DA SCRIVERE (Camillo presidia con rigore).
-> - DTW: origini (speech recognition), varianti moderne, Sakoe-Chiba window.
-> - Embedding e similarità semantica: coseno, bag-of-words, ColBERT (MaxSim), sparse retrieval.
-> - Early-exit e budget computation: posizionamento del gate permissivo.
+### 3.1 Dynamic Time Warping: dallo Speech Recognition al Vettoriale ad Alta Dimensione
+L'algoritmo Dynamic Time Warping (DTW), introdotto originariamente da Sakoe e Chiba (1978) per l'allineamento di segnali acustici nel riconoscimento vocale, fonda la propria efficacia sull'ottimizzazione mediante programmazione dinamica del cammino di allineamento tra serie temporali. Sebbene il DTW classico operi prevalentemente su traiettorie monodimensionali o scalari, recenti estensioni lo hanno applicato a spazi vettoriali ad alta dimensione $\mathbb{R}^D$ (Müller, 2007). In tali contesti, l'impiego di metriche di distanza locali (es. distanza coseno) combinato con vincoli di banda adattivi risulta essenziale per mitigare la complessità computazionale $O(N \cdot M)$ e per preservare la continuità topologica lungo il cammino semantico.
 
----
+### 3.2 Architetture di Retrieval: Bi-Encoder e Late Interaction
+I sistemi di recupero informativo basati su modelli linguistici densi si dividono fondamentalmente in due famiglie:
+1. **Bi-Encoder Densi** (es. Sentence-BERT): comprimono l'intera sequenza di input in un unico vettore rappresentativo $z \in \mathbb{R}^D$. Tale proiezione soffre del vincolo di collasso topologico, annullando la traiettoria temporale/semantica dei token e riducendo il confronto a una semplice Prossimità Puntuale (distanza coseno tra due punti statici).
+2. **Late Interaction** (es. ColBERT; Khattab & Zaharia, 2020): conservano i vettori di token intermedi ed effettuano un confronto guidato dall'operatore `MaxSim`. Sebbene ColBERT preservi la granularità locale tramite un approccio *bag-of-vectors*, l'operatore `MaxSim` manca di un vincolo d'ordine topologico e causale: esso calcola la somiglianza tra token senza imporre una continuità di cammino, rendendo il modello cieco di fronte a inversioni sintattiche o permutazioni del flusso causale.
+
+### 3.3 Early-Exit, Gate Permissivi e Sistemi Zero-Allocation
+Nei sistemi di ricerca e retrieval ad alte prestazioni, la riduzione delle latenze di calcolo richiede strategie avanzate di *early-exit* e filtraggio progressivo. L'approccio classico per la valutazione anticipata dei candidati impiega euristiche rigide basate su soglie globali, le quali corrono il rischio di scartare falsi negativi critici. I *gate permissivi* e i meccanismi di pruning probabilistico garantiscono invece una proprietà di conservatività strutturale del tipo $P(\text{FN}) \le \varepsilon$. Implementare tali filtri in architetture ad altissimo throughput impone il vincolo *zero-allocation*: la struttura di calcolo non deve allocare memoria dinamica nella fase di screening (es. *Guardiano $O(1)$* su indici *ordered-sparse*), garantendo una latenza deterministica e prevedibile.
 
 ## 4. Formulazione Matematica
 
