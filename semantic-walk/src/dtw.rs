@@ -1,19 +1,40 @@
 use crate::ordered_sparse::OrderedSparseSequence;
 
+/// Un passo cinematico del cammino di allineamento.
+///
+/// Misura la dinamica locale del disallineamento tra i punti allineati:
+/// * `velocity` — modulo del vettore errore ‖e_k‖₂;
+/// * `acceleration` — derivata discreta della velocità lungo il cammino;
+/// * `curvature` — deviazione angolare del vettore errore tra passi consecutivi.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KinematicStep {
+    pub velocity: f64,
+    pub acceleration: f64,
+    pub curvature: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct TrajectoryAlignment {
     pub normalized_score: f64,
     pub divergence_token: f64,
     pub warp_path: Vec<(usize, usize)>,
+    pub kinematic: Vec<KinematicStep>,
 }
 
 pub struct KinematicAligner {
     pub window_size: usize,
+    pub alpha: f64,
 }
 
 impl KinematicAligner {
+    /// Costruttore retrocompatibile: `alpha = 0.0` (τ_div = |N−M|/L, non content-sensitive).
     pub fn new(window_size: usize) -> Self {
-        Self { window_size }
+        Self { window_size, alpha: 0.0 }
+    }
+
+    /// Costruttore con peso esplicito della componente content-sensitive in τ_div.
+    pub fn with_alpha(window_size: usize, alpha: f64) -> Self {
+        Self { window_size, alpha }
     }
 
     /// Calcola la distanza coseno tra due vettori D-dimensionali: 1.0 - (u · v) / (|u| * |v|)
@@ -44,6 +65,59 @@ impl KinematicAligner {
 
         let sim = (dot / (norm_u_sq.sqrt() * norm_v_sq.sqrt())).clamp(-1.0, 1.0);
         Ok((1.0 - sim).max(0.0))
+    }
+
+    /// Calcola le metriche cinematiche (v_k, a_k, κ_k) lungo il cammino di allineamento.
+    ///
+    /// Per ogni passo k del warp_path, con e_k = x_{i_k} − y_{j_k}:
+    /// * `v_k = ‖e_k‖₂` (norma L2 del disallineamento locale);
+    /// * `a_k = v_k − v_{k−1}` (derivata discreta della velocità, a_0 = 0.0);
+    /// * `κ_k = 1.0 − (e_k·e_{k−1}) / (‖e_k‖₂·‖e_{k−1}‖₂)` (deviazione angolare, κ_0 = 0.0).
+    fn compute_kinematic<T: AsRef<[f64]>>(
+        seq_a: &[T],
+        seq_b: &[T],
+        warp_path: &[(usize, usize)],
+    ) -> Vec<KinematicStep> {
+        let mut kinematic = Vec::with_capacity(warp_path.len());
+
+        // e_k per ogni passo (vettore errore). Salviamo le norme e i vettori
+        // per calcolare le derivate e le deviazioni angolari tra passi consecutivi.
+        let mut prev_error: Option<Vec<f64>> = None;
+        let mut prev_velocity: Option<f64> = None;
+
+        for &(i, j) in warp_path {
+            let x = seq_a[i].as_ref();
+            let y = seq_b[j].as_ref();
+
+            let e: Vec<f64> = x.iter().zip(y.iter()).map(|(&a, &b)| a - b).collect();
+            let v = e.iter().map(|c| c * c).sum::<f64>().sqrt();
+
+            let a = match prev_velocity {
+                Some(pv) => v - pv,
+                None => 0.0,
+            };
+
+            let kappa = match &prev_error {
+                Some(pe) => {
+                    let dot: f64 = e.iter().zip(pe.iter()).map(|(&a, &b)| a * b).sum();
+                    let norm_e = v;
+                    let norm_pe = pe.iter().map(|c| c * c).sum::<f64>().sqrt();
+                    if norm_e == 0.0 || norm_pe == 0.0 {
+                        0.0
+                    } else {
+                        (1.0 - (dot / (norm_e * norm_pe))).max(0.0)
+                    }
+                }
+                None => 0.0,
+            };
+
+            kinematic.push(KinematicStep { velocity: v, acceleration: a, curvature: kappa });
+
+            prev_error = Some(e);
+            prev_velocity = Some(v);
+        }
+
+        kinematic
     }
 
     /// Calcola l'allineamento DTW vettoriale su sequenze di punti D-dimensionali
@@ -124,12 +198,15 @@ impl KinematicAligner {
         let total_cost = cost_matrix[n][m];
         let path_len = warp_path.len() as f64;
         let normalized_score = total_cost / path_len;
-        let divergence_token = (n as f64 - m as f64).abs() / path_len;
+        let divergence_token =
+            ((n as f64 - m as f64).abs() / path_len) + self.alpha * normalized_score;
+        let kinematic = Self::compute_kinematic(seq_a, seq_b, &warp_path);
 
         Ok(TrajectoryAlignment {
             normalized_score,
             divergence_token,
             warp_path,
+            kinematic,
         })
     }
 
@@ -260,12 +337,15 @@ impl KinematicAligner {
 
         let path_len = warp_path.len() as f64;
         let normalized_score = total_cost / path_len;
-        let divergence_token = (n as f64 - m as f64).abs() / path_len;
+        let divergence_token =
+            ((n as f64 - m as f64).abs() / path_len) + self.alpha * normalized_score;
+        let kinematic = Self::compute_kinematic(seq_a, seq_b, &warp_path);
 
         Ok(Some(TrajectoryAlignment {
             normalized_score,
             divergence_token,
             warp_path,
+            kinematic,
         }))
     }
 }
@@ -408,5 +488,80 @@ mod tests {
             .align_with_ordered_sparse(&a, &b, &sa, &sb, 0, 1, 1)
             .unwrap();
         assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_alpha_zero_tau_div_identica_a_oggi() {
+        // Con alpha=0.0 (default di `new`), τ_div è identica alla versione
+        // pre-patch: solo la componente |N−M|/L, senza contributo content-sensitive.
+        let aligner = KinematicAligner::new(3);
+        let seq_a = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+            vec![1.0, 0.0, 0.0, 0.5],
+        ];
+        let seq_b = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+        ];
+
+        let res = aligner.align(&seq_a, &seq_b).unwrap();
+        let expected_base = (3.0_f64 - 2.0_f64).abs() / res.warp_path.len() as f64;
+        assert!((res.divergence_token - expected_base).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_alpha_positivo_arricchisce_tau_div() {
+        // Con alpha>0, τ_div = |N−M|/L + alpha * normalized_score: il contributo
+        // content-sensitive è presente e cresce con alpha.
+        let aligner = KinematicAligner::with_alpha(3, 1.0);
+        let seq_a = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+            vec![1.0, 0.0, 0.0, 0.5],
+        ];
+        let seq_b = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+        ];
+
+        let res = aligner.align(&seq_a, &seq_b).unwrap();
+        let expected_base = (3.0_f64 - 2.0_f64).abs() / res.warp_path.len() as f64;
+        let expected = expected_base + 1.0 * res.normalized_score;
+        assert!((res.divergence_token - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_kinematic_popolato_lunghezza_warp_path() {
+        // Il campo `kinematic` è popolato con un passo per ogni punto del warp_path.
+        let aligner = KinematicAligner::new(3);
+        let seq_a = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+            vec![1.0, 0.0, 0.0, 0.5],
+        ];
+        let seq_b = vec![
+            vec![1.0, 0.0, 0.0, 0.5],
+            vec![0.0, 1.0, 0.0, 0.5],
+        ];
+
+        let res = aligner.align(&seq_a, &seq_b).unwrap();
+        assert_eq!(res.kinematic.len(), res.warp_path.len());
+    }
+
+    #[test]
+    fn test_kinematic_primo_passo_velocita_zero() {
+        // Il primo passo del warp_path allinea punti identici (stesso vettore):
+        // e_0 = 0 → v_0 = 0, a_0 = 0, κ_0 = 0.
+        let aligner = KinematicAligner::new(3);
+        let seq_a = vec![vec![1.0, 0.0, 0.0, 0.5]];
+        let seq_b = vec![vec![1.0, 0.0, 0.0, 0.5]];
+
+        let res = aligner.align(&seq_a, &seq_b).unwrap();
+        assert_eq!(res.kinematic.len(), 1);
+        let k0 = res.kinematic[0];
+        assert!(k0.velocity.abs() < 1e-9);
+        assert!(k0.acceleration.abs() < 1e-9);
+        assert!(k0.curvature.abs() < 1e-9);
     }
 }
