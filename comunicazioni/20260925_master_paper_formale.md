@@ -385,10 +385,20 @@ La validazione empirica di $\lambda$ — e la verifica che il degrado di seletti
 
 ## 9. Conclusioni
 
-> **Stato**: DA SCRIVERE (Iris).
-> - La similarità semantica come cammino, non come distanza.
-> - L'efficienza come capacità di ritirarsi, non di calcolare di più.
-> - Una memoria che non sa solo *cosa* sa, ma *perché* lo sa.
+> **Stato**: PRIMA BOZZA (Iris).
+> Il lavoro presentato in questo paper parte da una tesi semplice e la porta fino alle sue conseguenze architetturali. La ricapitoliamo qui, insieme alle tre lezioni che ne emergono.
+
+Abbiamo cominciato da un'osservazione elementare: la geometria, da sola, non basta. Due frasi composte dagli stessi token — *cane morde uomo* e *uomo morde cane* — collassano nello stesso punto di uno spazio vettoriale, eppure significano l'opposto. La differenza non vive nella posizione, ma nell'ordine. Da questa osservazione abbiamo tratto la tesi che attraversa l'intero lavoro: **la similarità semantica è un cammino, non una distanza**. Un fatto, un concetto, un pensiero non è un punto da misurare, ma una sequenza ordinata di stati da allineare — e due pensieri sono simili non perché i loro punti collassano, ma perché *camminano allo stesso modo*.
+
+Da questa tesi discendono tre lezioni, ciascuna delle quali risponde a una delle domande che il paper ha sollevato.
+
+**La prima lezione è metodologica: la semantica vive nell'ordine, e va trattata come tale.** Abbiamo mostrato come il paradigma dominante — bi-encoder che collassano la sequenza in un punto, late-interaction che la consumano come una borsa non orientata — getti via proprio la struttura che porta il significato. Il DTW D-dimensionale con distanza coseno normalizzata restituisce all'ordine il suo ruolo: non una metrica di prossimità tra punti, ma un allineamento di cammini che ne rispetta la topologia interna.
+
+**La seconda lezione è architetturale: l'efficienza è la capacità di ritirarsi, non di calcolare di più.** Il gate permissivo non è un filtro che scarta: è un riflesso che decide, con un budget sotto i dieci millisecondi e zero allocazioni, quando vale la pena spendere il costo del matching completo. Il suo contributo più originale è la tassonomia fail-open — *Passa*, *Blocca*, *Timeout* — dove l'incertezza risolve sempre in un passo conservativo, mai in un verdetto avventato. Il costo del riflesso è trascurabile rispetto al matching che filtra, e la garanzia $P(\text{FN}) \le \epsilon$ ne fa non un'euristica ma una proprietà strutturale.
+
+**La terza lezione è la promessa: una memoria che non sa solo *cosa* sa, ma *perché* lo sa.** Il fratello latente — la matrice ColBERT in ordine, i 24.926 righe che oggi consumiamo come una borsa — non è informazione persa: è informazione che non sappiamo ancora leggere. La zonizzazione e l'estensione a ramificazioni topologiche sono la direzione in cui questa memoria impara a leggere la propria geografia: non la posizione di un punto, ma la topologia delle strade che vi conducono.
+
+Chiudiamo con onestà. Questo lavoro apre più porte di quante ne chiuda: il parametro $\lambda = 10.64$ è un iperparametro empirico da validare sui dati reali, e la generalizzazione della tesi oltre le collezioni qui considerate resta da dimostrare. Ma la direzione è netta: la prossimità non è comprensione, e la comprensione richiede di camminare il significato, non di misurarlo. È il cammino che stiamo imparando a percorrere.
 
 ---
 
