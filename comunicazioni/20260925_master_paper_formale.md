@@ -116,16 +116,60 @@ In questo modo, traiettorie con scarsa concordanza posizionale subiscono sia una
 
 ### 4.3 Le metriche cinematiche
 
-> **Stato**: DA SCRIVERE (Camillo formule, Iris intuizione del moto nel campo semantico).
+> **Autore**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO — *proposta teorica, implementazione in corso*.
+> Le formule descrivono la caratterizzazione teorica del moto nel campo semantico; l'integrazione progressiva del calcolo dinamico di $v_k$ nel motore DTW è in corso (vedi Sezione 5.1).
 
-### 4.4 La coerenza di Pareto (la perla)
+Le tre grandezze cinematiche sono calcolate lungo il cammino di allineamento $P = \{(i_k, j_k)\}$ per $k = 1 \dots K$. L'azione inerziale costituisce un transfer originale dal *minimum-jerk model* della robotica (Flash & Hogan, 1985) all'Information Retrieval.
 
-> **Stato**: DA SCRIVERE (Camillo la prova, Iris il peso concettuale).
+**Velocità di avanzamento semantico ($v_k$)**
 
-### 4.5 Il divergence token come sonda
+$$v_k = \frac{\Vert{}\mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}\Vert{}_2}{\Delta k}$$
 
-> **Stato**: DA SCRIVERE (Camillo definizione, Iris ruolo architetturale).
-> τ_div = |N−M| / L_path.
+**Curvatura della traiettoria semantica ($\kappa_k$)**
+
+$$\kappa_k = 1 - \frac{\Delta \mathbf{v}_k \cdot \Delta \mathbf{v}_{k-1}}{\Vert{}\Delta \mathbf{v}_k\Vert{}_2 \cdot \Vert{}\Delta \mathbf{v}_{k-1}\Vert{}_2}$$
+
+dove $\Delta \mathbf{v}_k = \mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}$.
+
+**Inerzia di allineamento ($I_P$)**
+
+$$I_P = \frac{1}{K} \sum_{k=1}^{K} \left| i_k - j_k \cdot \frac{N}{M} \right|$$
+
+**Azione cinematica inerziale ($S_{\text{Inertial}}$)**
+
+$$S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$$
+
+> **Nota di onestà metodologica.** La formula $S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$ è coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`). Tuttavia, nel codice attuale i campi `velocity`, `acceleration` e `curvature` sono *dichiarati ma non popolati* da un calcolo di avanzamento lungo una traiettoria reale: il DTW non usa ancora metriche cinematiche. La definizione di velocità $v_k$ è pertanto una formalizzazione teorica di arrivo, non la descrizione del codice esistente. Il paper la dichiara come tale — la suite di test è pronta a verificarne l'implementazione quando avverrà.
+
+### 4.4 La coerenza di Pareto e l'Invariante di Isomorfismo di Livello
+
+> **Autore**: Camillo (prova), Iris (peso concettuale). **Stato**: INTEGRATO.
+
+La coerenza di Pareto, verificata via property-based test, è una proprietà *architetturale*: per una somma pesata monotona degli assi, la dominanza individuale dei rami non interferisce con l'ottimo globale. Il vero protagonista di questa sezione è però l'**Invariante di Isomorfismo di Livello**:
+
+$$\text{Pruning}(\text{Branch}(P)) \neq \text{Pruning}(\text{Collapse}(P))$$
+
+Dimostriamo che la riduzione dello spazio di ricerca mediante dominanza Pareto preserva l'ottimo globale $P^*$ *se e solo se* applicata **post-collapse** sul candidato accumulato. Il pruning branch-level soffre di un errore strutturale con lower bound $\Omega(N)$ sotto aggregazione additiva — esattamente come emerso dal bug risolto sulla codebase (vedi Sezione 5.2).
+
+> **Nota concettuale.** La dominanza tra rami non basta mai: se $L_c > U_d$ (lower bound del candidato superiore all'upper bound dell'incumbent), quel candidato è escluso *senza toccare il suo punteggio*. La regola operativa è $\text{partial} > \text{incumbent} \rightarrow \text{stop}$. Non trasformare i costi cancellati in un vantaggio per il candidato: è questo il principio che il pruning branch-level violava, e che l'isomorfismo di livello ristabilisce.
+
+### 4.5 Il divergence token come sonda content-sensitive
+
+> **Autore**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO — *formulazione di riferimento e target per il gate, implementazione in corso*.
+
+La metrica base $\tau_{\text{div}} = |N - M| / L_{\text{path}}$ (implementata in `dtw.rs:127` e `dtw.rs:263`) misura solo il disallineamento di *lunghezza* e si annulla per ogni coppia di uguale lunghezza ($N = M$). La ridefiniamo integrandovi il costo medio di deformazione semantica $\bar{c}_{\text{path}}$:
+
+$$\tau_{\text{div}} = \frac{|N - M|}{L_{\text{path}}} + \alpha \cdot \bar{c}_{\text{path}}$$
+
+dove $\bar{c}_{\text{path}}$ è definito come:
+
+$$\bar{c}_{\text{path}} = \frac{1}{K} \sum_{k=1}^{K} \Vert{}\mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)}\Vert{}_2$$
+
+La condizione di attivazione del gate ($\text{Verdict::Timeout}$) resta ancorata alla soglia parametrica:
+
+$$\tau_{\text{div}} \ge \theta$$
+
+> **Nota di onestà metodologica.** Il codice attuale implementa la sola componente di lunghezza $|N - M| / L_{\text{path}}$ (dtw.rs:127 e 263). Il termine content-sensitive $\alpha \cdot \bar{c}_{\text{path}}$ è la *formulazione di riferimento e target* per il gate — un'evoluzione dichiarata, la cui implementazione è in corso. La sonda content-sensitive risolve esattamente il limite che la review ha smontato: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti.
 
 ---
 
