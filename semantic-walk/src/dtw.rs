@@ -134,28 +134,6 @@ impl KinematicAligner {
     }
 
     /// **Allineamento DTW con guida ordered-sparse (due strati)**.
-    ///
-    /// Integra la proiezione posizionale delle attivazioni lungo la traiettoria,
-    /// rispondendo architetturalmente alla domanda di Federico: l'ordered-sparse
-    /// non è una quarta stanza del combinatore, ma una *guida cinematica* che
-    /// entra nel cammino.
-    ///
-    /// - **Strato 1 — Guardiano O(1)**: se `global_overlap` tra le due sequenze
-    ///   ordered-sparse è sotto `min_overlap_threshold`, le traiettorie divergono
-    ///   topologicamente → ritorna `Ok(None)` (ritiro geometrico, coerente con
-    ///   la semantica del bridge: `Option::None` = ritiro, `Err` = guasto).
-    /// - **Strato 2 — Sakoe-Chiba dinamica**: la banda `W_i` alla posizione `i`
-    ///   è modulata da `positional_jaccard`:
-    ///   - concordanza alta (`Jaccard ≥ 0.7`): finestra si stringe a `w_min`
-    ///     (massimo vincolo cinematico);
-    ///   - concordanza bassa (`Jaccard < 0.3`): finestra si allarga fino a
-    ///     `w_max`, con un fattore di penalità `1 + (0.3 − Jaccard)` sul costo
-    ///     locale (più divergente = più penalità);
-    ///   - range intermedio: interpolazione lineare continua tra `w_min` e
-    ///     `w_max`.
-    ///
-    /// Il costo locale resta la distanza coseno normalizzata sui vettori densi;
-    /// l'ordered-sparse non sostituisce il canale, lo guida.
     pub fn align_with_ordered_sparse<T: AsRef<[f64]>>(
         &self,
         seq_a: &[T],
@@ -191,7 +169,6 @@ impl KinematicAligner {
         }
 
         // Strato 2 — Banda di Sakoe-Chiba dinamica.
-        // w_min e w_max devono essere coerenti: se w_min > w_max li normalizziamo.
         let (w_min, w_max) = if w_min <= w_max {
             (w_min, w_max)
         } else {
@@ -208,15 +185,6 @@ impl KinematicAligner {
                 return Err("Dimensione del vettore non coerente lungo la sequenza A");
             }
 
-            // Finestra dinamica per questa posizione, in base al Jaccard
-            // posizionale tra i frame ordered-sparse.
-            //
-            // Quando le sequenze hanno lunghezza diversa (n > m), per le
-            // posizioni `i-1 >= m` la sequenza B non ha un frame corrispondente:
-            // `positional_jaccard` accederebbe a `offsets[i]` di `sparse_b`
-            // oltre il limite (panic in libreria). In quella zona non esiste
-            // concordanza posizionale con B, quindi il DTW deve allargare la
-            // banda al massimo (comportamento coerente con concordanza bassa).
             let j = if i - 1 < m {
                 sparse_a.positional_jaccard(sparse_b, i - 1)
             } else {
@@ -227,11 +195,9 @@ impl KinematicAligner {
             } else if j < 0.3 {
                 w_max
             } else {
-                // Interpolazione lineare continua nel range intermedio.
-                let t = (j - 0.3) / 0.4; // 0.0 a 0.3, 1.0 a 0.7
+                let t = (j - 0.3) / 0.4;
                 (w_min as f32 + (w_max as f32 - w_min as f32) * t) as usize
             };
-            // La banda dinamica non deve superare il limite di base (window_size).
             let w_i = w_i.min(w_base.max(1));
 
             let window_start = (i as isize - w_i as isize).max(1) as usize;
@@ -245,8 +211,6 @@ impl KinematicAligner {
 
                 let mut local_cost = Self::cosine_distance(p_a, p_b)?;
 
-                // Penalità sul costo locale quando la concordanza posizionale
-                // è bassa: più divergente = più penalità.
                 if j < 0.3 {
                     local_cost *= 1.0 + (0.3 - j) as f64;
                 }
@@ -289,6 +253,11 @@ impl KinematicAligner {
         warp_path.reverse();
 
         let total_cost = cost_matrix[n][m];
+
+        if !total_cost.is_finite() {
+            return Ok(None);
+        }
+
         let path_len = warp_path.len() as f64;
         let normalized_score = total_cost / path_len;
         let divergence_token = (n as f64 - m as f64).abs() / path_len;
@@ -331,8 +300,6 @@ mod tests {
         assert!(dist < 1e-12);
     }
 
-    // --- Test per l'integrazione ordered-sparse nel DTW ---
-
     fn seq_identica(n: usize) -> Vec<Vec<f64>> {
         (0..n).map(|_| vec![1.0, 0.0, 0.0, 0.5]).collect()
     }
@@ -347,10 +314,6 @@ mod tests {
     }
 
     fn sparse_disgiunto(n: usize) -> OrderedSparseSequence {
-        // Token molto distanti da quelli di sparse_identico (1,2) per massimizzare
-        // la separazione. Nota: la firma bloom è densa (~70 bit/token), quindi
-        // l'overlap di fondo tra token diversi non scende sotto ~18/128. La soglia
-        // del test deve stare sopra questo rumore di fondo per discriminare.
         OrderedSparseSequence::from_frames(
             &(0..n)
                 .map(|_| vec![(100_000u32, 0.5f32), (4_000_000u32, 0.3f32)])
@@ -359,22 +322,17 @@ mod tests {
         .unwrap()
     }
 
-    /// Soglia di pruning realistica: l'overlap "identico vs identico" è ~98/128,
-    /// quello "identico vs disgiunto" è ~18-20/128 (rumore di fondo della firma).
-    /// Una soglia di 90 separa nettamente i due casi.
     const SOGLIA_DISCRIMINANTE: u32 = 90;
 
     #[test]
     fn test_strato1_pruning_ritiro_geometrico() {
         let aligner = KinematicAligner::new(3);
         let seq = seq_identica(4);
-        // Sequenze dense identiche, ma guide sparse disgiunte (overlap sotto soglia).
         let sa = sparse_identico(4);
         let sb = sparse_disgiunto(4);
         let res = aligner
             .align_with_ordered_sparse(&seq, &seq, &sa, &sb, SOGLIA_DISCRIMINANTE, 1, 3)
             .unwrap();
-        // Ritiro geometrico: Ok(None), non errore.
         assert!(res.is_none());
     }
 
@@ -398,7 +356,6 @@ mod tests {
         let seq = seq_identica(4);
         let sa = sparse_identico(4);
         let sb = sparse_disgiunto(4);
-        // Soglia zero: permissivo, nessun ritiro anche con guide disgiunte.
         let res = aligner
             .align_with_ordered_sparse(&seq, &seq, &sa, &sb, 0, 1, 3)
             .unwrap();
@@ -410,7 +367,7 @@ mod tests {
         let aligner = KinematicAligner::new(3);
         let seq = seq_identica(4);
         let sa = sparse_identico(4);
-        let sb = sparse_identico(3); // lunghezza diversa dalla sequenza B
+        let sb = sparse_identico(3);
         let res = aligner.align_with_ordered_sparse(&seq, &seq, &sa, &sb, 4, 1, 3);
         assert!(res.is_err());
     }
@@ -421,22 +378,15 @@ mod tests {
         let seq = seq_identica(4);
         let sa = sparse_identico(4);
         let sb = sparse_identico(4);
-        // w_min > w_max: devono essere normalizzati senza panico.
         let res = aligner
             .align_with_ordered_sparse(&seq, &seq, &sa, &sb, 0, 5, 1)
             .unwrap();
         assert!(res.is_some());
     }
 
-    /// Regressione per il finding critico della review esterna (§4.3 dtw):
-    /// con `n > m` (sequenze dense di lunghezza diversa) il DTW accedeva a
-    /// `positional_jaccard(sparse_b, i-1)` oltre il limite di `sparse_b`,
-    /// causando un panic in libreria. Ora le posizioni oltre `m` usano banda
-    /// massima (concordanza nulla) e la funzione ritorna senza panico.
     #[test]
     fn test_n_maggiore_di_m_non_panica() {
         let aligner = KinematicAligner::new(3);
-        // Sequenza A più lunga di B: n = 5, m = 3.
         let seq_a = seq_identica(5);
         let seq_b = seq_identica(3);
         let sa = sparse_identico(5);
@@ -444,8 +394,19 @@ mod tests {
         let res = aligner
             .align_with_ordered_sparse(&seq_a, &seq_b, &sa, &sb, 0, 1, 3)
             .unwrap();
-        // Non deve panic: ritorna un allineamento (o ritiro geometrico),
-        // mai un errore di out-of-bounds.
         assert!(res.is_some());
+    }
+
+    #[test]
+    fn test_ritiro_geometrico_banda_troppo_stretta() {
+        let aligner = KinematicAligner::new(1);
+        let a: Vec<[f64; 2]> = (0..10).map(|i| [i as f64, 0.0]).collect();
+        let b: Vec<[f64; 2]> = vec![[0.0, 0.0], [9.0, 0.0]];
+        let sa = sparse_identico(10);
+        let sb = sparse_identico(2);
+        let res = aligner
+            .align_with_ordered_sparse(&a, &b, &sa, &sb, 0, 1, 1)
+            .unwrap();
+        assert!(res.is_none());
     }
 }
