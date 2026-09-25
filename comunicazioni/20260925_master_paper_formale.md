@@ -51,7 +51,7 @@ La posta in gioco non è accademica. Una memoria che si affida alla sola prossim
 
 I modelli di retrieval correnti affrontano il problema dell'ordinamento sequenziale secondo due paradigmi prevalenti:
 1. **Bi-encoder Densi (Dense Retrieval)**: Proiettano l'intera sequenza di input in un unico vettore $z \in \mathbb{R}^D$. Benché efficiente per la ricerca tramite Nearest Neighbor (ANN), il meccanismo di pooling distrugge la struttura topologica del cammino temporale, trattando la sequenza come un punto statico.
-2. **Late-Interaction (es. ColBERT MaxSim)**: Mantengono una matrice di vettori per ogni token e calcolano la similarità aggregando le distanze cosmiche massime per token. Tuttavia, l'operatore MaxSim è topologicamente non orientato: confronta bag-of-vectors senza imporre vincoli sulla sequenzialità causale o sulla direzione del flusso informativo.
+2. **Late-Interaction (es. ColBERT MaxSim)**: Mantengono una matrice di vettori per ogni token e calcolano la similarità aggregando le distanze coseno massime per token. Tuttavia, l'operatore MaxSim è topologicamente non orientato: confronta bag-of-vectors senza imporre vincoli sulla sequenzialità causale o sulla direzione del flusso informativo.
 
 ### 2.2 La semantica come cammino
 
