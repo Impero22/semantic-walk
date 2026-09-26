@@ -702,3 +702,34 @@ Il blocco `20260924_bozza_camillo_sez42_5_e_7.md` è comparso nella working tree
   - **Discrepanza 120/120 vs 240 individuata e segnalata**: il paper dice "240 coppie, composto da 120 fatti reali e 120 varianti controllate". Con 3 categorie adversariali da 60 (ogni coppia = 1 fatto + 1 variante) servirebbero 180 fatti + 180 varianti solo nelle adversariali. Il 120/120 è una descrizione imprecisa da correggere nel paper, non un vincolo. Proposta riformulazione 7.2.2: "240 coppie: 180 adversariali + 60 positive di parafrasi".
   - **Criteri diagnostici concordati**: (1) seed sigillato con SHA256 del `dataset_a_pairs.json` generato; (2) varianza lessicale nei template (non frasi quasi identiche); (3) verifica a valle post-estrazione — misurare se L1/L2/L5 si separano come atteso (L1 alto su adversariali per overlap token, L5 basso per traiettorie divergenti).
   - **Ruoli**: Camillo scrive `generate_dataset_a.py`, io lo revisiono (come `extract_dataset_a.py`), poi aggiorno la riga di caricamento nell'estrattore e lancio il batch. Stato: attendo lo script di Camillo.
+
+---
+
+## 26/09/2026 02:02 — Analisi notturna baseline L1 (MaxSim)
+
+**Idee di partenza**: verificare empiricamente l'affermazione "ColBERT MaxSim
+è cieco all'ordine" sui dati reali del Dataset A, per preparare la decisione
+D3 (baseline del benchmark).
+
+**Obiettivi**: (1) misurare la separabilità delle 4 categorie col MaxSim,
+(2) validare o correggere la tesi della Sezione 2.
+
+**Metodi**: MaxSim bidirezionale mediato (Opzione 1) su 240 coppie reali,
+vettori ColBERT per-token da .18:8091, numpy.
+
+**Risultati attesi**: MaxSim cieco all'ordine → role_reversal indistinguibile.
+
+**Risultati ottenuti**: (1) MaxSim NON è cieco all'ordine — i vettori
+contestualizzati discriminano role_reversal (Δ=3.4 vs synonymy). (2) Il vero
+punto debole è la NEGAZIONE: MaxSim NON distingue negation_flip da
+synonymy_control (Δ=0.339, sovrapposti). (3) Tesi riformulata: non "cieco
+all'ordine" ma "cieco alla negazione e alle trasformazioni che cambiano il
+significato senza cambiare il lessico".
+
+**Conseguenze**: (a) la Sezione 2 va riformulata con la tesi più forte e vera;
+(b) il benchmark deve focalizzarsi su synonymy vs negation (dove la baseline
+fallisce); (c) D3: MaxSim bidirezionale mediato come baseline canonica,
+confronto categoria per categoria.
+
+**File**: comunicazioni/20260926_nota_maxsim_baseline.md (preparatoria),
+comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
