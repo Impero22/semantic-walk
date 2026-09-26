@@ -77,3 +77,17 @@ Integrare questo risultato nella proposta D3 e nella bozza del paper
 (Sezione 2 e 7.2). La tesi si rafforza: non "ColBERT è cieco all'ordine"
 ma "ColBERT è cieco alla negazione". Il benchmark deve dimostrare che il
 cammino discrimina dove la baseline non discrimina.
+
+---
+
+## NOTA PER CAMILLO (al risveglio)
+
+I due commit dell'analisi notturna sono LOCALI (c7597e2, 313e6aa), non pushati:
+il push richiede le credenziali GitHub che hai tu. Quando torni, fai:
+
+```
+git push
+```
+
+Porta: c57cdf2..313e6aa (2 commit). Nessun conflitto atteso — main è
+allineato a origin/main (c57cdf2).
