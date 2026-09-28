@@ -761,3 +761,38 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 **Tesi finale raffinata**: il cammino vince dove il significato cambia senza cambiare il lessico (role_reversal, negation) — ma la causalità è il suo punto cieco strutturale (allinea il connettivo condiviso, non vede l'inversione causa↔effetto). Ogni approccio ha il suo punto cieco; il valore sta nel mapparli. La debolezza su causality pura è la dimostrazione empirica più netta dell'ortogonalità L1/L5 → giustifica semantic-combiner e la frontiera di Pareto.
 
 **File**: comunicazioni/20260928_risultati_benchmark_dataset_a.md (commit d3de105).
+
+## 28/09/26 21:11 — Verifica di coerenza globale del master (Iris)
+
+**Contesto**: Camillo ha chiuso la Sezione 5.3 ("perfetta così com'è") e indicato come passo successivo la verifica di coerenza globale del master paper (20260925_master_paper_formale.md).
+
+**Verifiche eseguite (Iris)**: lettura integrale delle sezioni 4 (Formulazione Matematica), 5 (Architettura), 6 (Gate Permissivo), 8 (Discussione), 9 (Conclusioni), 10 (Bibliografia), confrontando ogni formalizzazione con l'implementazione reale (dtw.rs, lib.rs, sonda.rs, budget.rs).
+
+**Esito**: blocco solido — teorema di Permissività Strutturale, corollario P(FN)≤ε, metriche cinematiche, banda adattiva, tutto riallineato al codice. Nessun'altra discrepanza tra sezioni.
+
+**UNICO PUNTO DI TENSIONE TROVATO (nomenclatura, non sostanza)**:
+- Sezione 4.5: τ_div = |N−M|/L_path + α·c̄_path (metrica content-sensitive, richiede il matching completo DTW).
+- Sezione 6.4 passo 5: τ_div = s(d,s) (variabile di misura della sonda economica, pre-matching, colbert a 0).
+- Il gate decide PRIMA del matching → non può usare la τ_div della 4.5. Se il lettore collega i due usi dello stesso simbolo, il teorema sembra incoerente (come se il gate usasse il costo del DTW per decidere se fare il DTW).
+
+**Soluzione proposta (Iris)**: distinguere i due ruoli — la τ_div post-matching completa resta τ_div (divergenza del cammino); la sonda economica produce una stima τ̂_div (o s_eco). Il teorema resta identico: Blocca ⟹ (s_eco valida ∧ s_eco < θ). La permissività strutturale non cambia di una riga, ma il lettore non confonde più il riflesso con il giudice.
+
+**Stato**: comunicato a Camillo; in attesa della sua scelta (patch di rinomina da parte mia o gestione diretta).
+
+## 28/09/26 21:22 — Patch di rinomina τ_div/τ̂_div applicata (Iris)
+
+**Contesto**: Camillo ha validato la proposta di distinguere i due usi di τ_div e ha dato il via libera alla patch.
+
+**Modifiche applicate** (master paper 20260925_master_paper_formale.md, 5 punti):
+1. Riga 271 (stato sez 6.4): τ_div → $\hat{\tau}_{\text{div}}$ come stima della sonda economica.
+2. Riga 315 (passo 5 della regola di decisione): la sonda produce la *stima economica* $\hat{\tau}_{\text{div}} = s(\mathbf{d},\mathbf{s})$ (dense+sparse, ColBERT a 0); aggiunta Nota di nomenclatura che la distingue dalla τ_div post-matching della 4.5.
+3. Riga 334 (dimostrazione): $s$ → $\hat{\tau}_{\text{div}}$ nella condizione di Blocca.
+4. Riga 336 (formula): $\text{Blocca} \implies (\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta)$.
+5. Riga 340 (corollario): $\epsilon = P(\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta \mid \text{candidato rilevante})$.
+6. Riga 362 (tabella L5): "stima economica $\hat{\tau}_{\text{div}}$".
+
+**τ_div resta** (Sezione 4.5, righe 206/208/213/230): divergenza cinematica completa post-matching tramite DTW. La 230 mantiene τ_div perché descrive la sonda content-sensitive del DTW stesso (post-matching), non la sonda economica del gate.
+
+**Verifica finale**: nessun uso ambiguo residuo. Il teorema di Permissività Strutturale ora è formalmente coerente: il gate decide PRIMA del matching con una stima $\hat{\tau}_{\text{div}}$, il giudizio cinematico completo $\tau_{\text{div}}$ viene dopo.
+
+**Nota metodologica**: il primo BatchEdit aveva riportato "applied 5 edits" ma ne aveva applicate solo 1 (riga 362) — le altre fallirono per mismatch di escape (Unicode τ letterale alla 271, troppi livelli di backslash nel JSON). Rifatto con python su contenuto esatto, tutte le 5 sostituzioni verificate con assert count==1.

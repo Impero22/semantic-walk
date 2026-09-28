@@ -268,7 +268,7 @@ Le due metriche non sono sovrapponibili con una media pesata: sono dimensioni in
 
 ## 6. Il Gate Permissivo e il Verdict::Timeout — REV
 
-> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza B risolta: passo 5 della 6.4 formalizza τ_div come metrica misurata dalla sonda, θ come soglia parametrica, condizione di scatto τ_div ≥ θ).
+> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza B risolta: passo 5 della 6.4 formalizza $\hat{\tau}_{\text{div}}$ come stima misurata dalla sonda economica, θ come soglia parametrica, condizione di scatto $\hat{\tau}_{\text{div}} \ge \theta$; nomenclatura allineata alla verifica di coerenza globale del 28/09).
 > Da `20260924_bozza_iris_sez41_e_6.md` sezione 6.
 
 ### 6.1 Il Problema Decisionale
@@ -312,7 +312,7 @@ Il gate decide secondo l'algoritmo (fedele a `decide()` in `lib.rs`):
 2. **Calcolo della sonda.** $s = s(\mathbf{d}, \mathbf{s})$.
 3. **Seconda guardia (budget).** Se $t \ge T_{\text{max}}$ (scaduto *mentre* calcolavamo) → `Verdict::Timeout`.
 4. **Ritiro per onestà.** Se $s$ è `NaN` (sonda ritirata) → `Verdict::Passa` (permissivo: nessun giudizio affidabile → non si blocca).
-5. **Soglia.** La sonda produce la metrica di divergenza $\tau_{\text{div}} = s(\mathbf{d}, \mathbf{s})$; la condizione di scatto è $\tau_{\text{div}} \ge \theta$ (soglia parametrica del gate). Se $\tau_{\text{div}} \ge \theta$ → `Verdict::Passa`; altrimenti → `Verdict::Blocca`. Qui $\tau_{\text{div}}$ è la *variabile di misura* (ciò che la sonda calcola), $\theta$ il *valore di controllo* (la soglia parametrica che decide): i due ruoli restano separati e netti.
+5. **Soglia.** La sonda produce la *stima economica* $\hat{\tau}_{\text{div}} = s(\mathbf{d}, \mathbf{s})$ (basata unicamente sulle componenti densa e sparsa, con ColBERT posto a $0$); la condizione di scatto è $\hat{\tau}_{\text{div}} \ge \theta$ (soglia parametrica del gate). Se $\hat{\tau}_{\text{div}} \ge \theta$ → `Verdict::Passa`; altrimenti → `Verdict::Blocca`. Qui $\hat{\tau}_{\text{div}}$ è la *variabile di misura* (ciò che la sonda economica calcola), $\theta$ il *valore di controllo* (la soglia parametrica che decide): i due ruoli restano separati e netti. **Nota di nomenclatura.** La $\hat{\tau}_{\text{div}}$ della sonda è una *stima* pre-matching; va distinta dalla $\tau_{\text{div}}$ della Sezione 4.5, divergenza cinematica completa calcolata post-matching tramite DTW. Il gate decide prima del matching e non può dipendere dal costo di un cammino non ancora calcolato.
 
 ### 6.5 `Verdict::Timeout` come Ritiro del Riflesso
 
@@ -331,13 +331,13 @@ Nel primo caso il gate è un *giudice*; nel secondo è un *riflesso che si ritir
 
 $$P(\text{FN} \mid \text{incertezza}) = 0$$
 
-**Dimostrazione.** Un falso negativo si verifica solo quando il gate decide `Blocca` su un candidato che meritava il costo. Il verdetto `Blocca` viene emesso **solo** al passo 5, e solo quando $s < \theta$ con $s$ *valido* (non `NaN`). Tutti i percorsi di incertezza — budget esaurito (passi 1 e 3) e sonda ritirata (passo 4) — risolvono in `Timeout` o `Passa`, mai in `Blocca`. Quindi:
+**Dimostrazione.** Un falso negativo si verifica solo quando il gate decide `Blocca` su un candidato che meritava il costo. Il verdetto `Blocca` viene emesso **solo** al passo 5, e solo quando $\hat{\tau}_{\text{div}} < \theta$ con $\hat{\tau}_{\text{div}}$ *valida* (non `NaN`). Tutti i percorsi di incertezza — budget esaurito (passi 1 e 3) e sonda ritirata (passo 4) — risolvono in `Timeout` o `Passa`, mai in `Blocca`. Quindi:
 
-$$\text{Blocca} \implies (s \text{ valido} \land s < \theta)$$
+$$\text{Blocca} \implies (\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta)$$
 
 e l'insieme dei candidati su cui il gate decide `Blocca` è un sottoinsieme di quelli che la sonda *valida* giudica sotto soglia. La probabilità che un candidato rilevante (che merita il costo) venga bloccato per *incertezza* è zero: l'incertezza non produce mai `Blocca`.
 
-**Corollario (Limite superiore).** Sia $\epsilon = P(s \text{ valido} \land s < \theta \mid \text{candidato rilevante})$ la probabilità che la sonda — quando ha un giudizio valido — sbagli a giudicare un candidato rilevante come sotto soglia. Allora:
+**Corollario (Limite superiore).** Sia $\epsilon = P(\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta \mid \text{candidato rilevante})$ la probabilità che la sonda — quando ha un giudizio valido — sbagli a giudicare un candidato rilevante come sotto soglia. Allora:
 
 $$P(\text{FN}) \le \epsilon$$
 
@@ -359,7 +359,7 @@ Per valutare quantitativamente il contributo di ogni singolo modulo, il benchmar
 | **L2** | *DTW Naive* | DTW $D$-dimensionale denso ($W = \infty$) | Impatto dell'allineamento d'ordine non vincolato |
 | **L3** | *DTW Geometrizzato* | DTW + Banda $r_i$ Sakoe-Chiba Adattiva al Jaccard | Efficienza della banda dinamica e riduzione rumore |
 | **L4** | *Full DTW Pipeline* | DTW Geometrizzato + Early Termination Pareto | Tasso di pruning e riduzione della latenza a candidato |
-| **L5** | *Full Semantic-Walk* | Pipeline completa + Gate Permissivo (soglia $\theta$ sulla metrica di divergenza $\tau_{\text{div}}$ + Timeout) | Risparmio complessivo di throughput con garanzia $P(\text{FN}) \le \epsilon$ |
+| **L5** | *Full Semantic-Walk* | Pipeline completa + Gate Permissivo (soglia $\theta$ sulla stima economica $\hat{\tau}_{\text{div}}$ + Timeout) | Risparmio complessivo di throughput con garanzia $P(\text{FN}) \le \epsilon$ |
 
 > **Nota (osservazione C).** Il DTW Naive con $W=\infty$ costituisce una pura baseline teorica di ablation benchmark per valutare il delta prestazionale, e **non** rappresenta un percorso di esecuzione attivo o selezionabile nel sorgente Rust.
 
