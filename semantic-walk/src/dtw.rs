@@ -402,7 +402,14 @@ mod tests {
         .unwrap()
     }
 
-    const SOGLIA_DISCRIMINANTE: u32 = 90;
+    // Soglia del guardiano Strato 1. Ricalibrata per la nuova densità di
+    // firma Bloom k=2 bit per token (Fix Opzione 1): con la vecchia firma
+    // (rotate_left(17) + XOR-shift, ~64 bit/token) il registro saturava a 128
+    // e sequenze identiche davano overlap 128, quindi una soglia di 90 era
+    // coerente. Con k=2 la scala è cambiata: sequenze identiche danno overlap
+    // 8, disgiunte 1. Il valore 4 separa nettamente i due casi mantenendo
+    // margine su entrambi i lati.
+    const SOGLIA_DISCRIMINANTE: u32 = 4;
 
     #[test]
     fn test_strato1_pruning_ritiro_geometrico() {

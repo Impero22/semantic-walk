@@ -140,12 +140,23 @@ impl OrderedSparseSequence {
                     // (weight > 0). Un token soppresso (weight <= 0) non è
                     // "presente" nel cammino per il guardiano del pruning.
                     if weight > 0.0 {
-                        let h = (token as u128)
-                            .wrapping_mul(0x9E3779B97F4A7C15)
-                            .rotate_left(17);
-                        let h = (h ^ (h >> 31)) as u64;
-                        sig[0] |= h;
-                        sig[1] |= h.rotate_left(32);
+                        // Firma Bloom k=2 per registro (Fix Opzione 1).
+                        // Due hash indipendenti indicizzano due bit distinti
+                        // in ciascun u64. La versione precedente (rotate_left(17)
+                        // + XOR-shift, poi split in s0/s1 con rotate_left(32))
+                        // impostava ~64 bit per token e saturava il registro a
+                        // 128 bit dopo appena ~9 token distinti, rendendo
+                        // `global_overlap` degenere (sempre 1.0). Con k=2 la
+                        // densità resta bassa e il canale sparse discrimina.
+                        let t = token as u128;
+                        let h1 = t.wrapping_mul(0x9E3779B97F4A7C15);
+                        let h2 = h1.wrapping_mul(0x85EBCA77C2B2AE63);
+                        let b0a = ((h1 >> 64) as u32) & 63;
+                        let b0b = ((h2 >> 64) as u32) & 63;
+                        let b1a = ((h1 >> 32) as u32) & 63;
+                        let b1b = ((h2 >> 32) as u32) & 63;
+                        sig[0] |= (1u64 << b0a) | (1u64 << b0b);
+                        sig[1] |= (1u64 << b1a) | (1u64 << b1b);
                     }
 
                     tokens.push(token);
@@ -162,12 +173,23 @@ impl OrderedSparseSequence {
                 // (weight > 0). I soppressi restano nel buffer ma non
                 // contribuiscono alla firma del pruning.
                 if weight > 0.0 {
-                    let h = (token as u128)
-                        .wrapping_mul(0x9E3779B97F4A7C15)
-                        .rotate_left(17);
-                    let h = (h ^ (h >> 31)) as u64;
-                    sig[0] |= h;
-                    sig[1] |= h.rotate_left(32);
+                    // Firma Bloom k=2 per registro (Fix Opzione 1).
+                    // Due hash indipendenti indicizzano due bit distinti
+                    // in ciascun u64. La versione precedente (rotate_left(17)
+                    // + XOR-shift, poi split in s0/s1 con rotate_left(32))
+                    // impostava ~64 bit per token e saturava il registro a
+                    // 128 bit dopo appena ~9 token distinti, rendendo
+                    // `global_overlap` degenere (sempre 1.0). Con k=2 la
+                    // densità resta bassa e il canale sparse discrimina.
+                    let t = token as u128;
+                    let h1 = t.wrapping_mul(0x9E3779B97F4A7C15);
+                    let h2 = h1.wrapping_mul(0x85EBCA77C2B2AE63);
+                    let b0a = ((h1 >> 64) as u32) & 63;
+                    let b0b = ((h2 >> 64) as u32) & 63;
+                    let b1a = ((h1 >> 32) as u32) & 63;
+                    let b1b = ((h2 >> 32) as u32) & 63;
+                    sig[0] |= (1u64 << b0a) | (1u64 << b0b);
+                    sig[1] |= (1u64 << b1a) | (1u64 << b1b);
                 }
 
                 tokens.push(token);
