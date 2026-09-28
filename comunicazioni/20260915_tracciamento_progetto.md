@@ -796,3 +796,24 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 **Verifica finale**: nessun uso ambiguo residuo. Il teorema di Permissività Strutturale ora è formalmente coerente: il gate decide PRIMA del matching con una stima $\hat{\tau}_{\text{div}}$, il giudizio cinematico completo $\tau_{\text{div}}$ viene dopo.
 
 **Nota metodologica**: il primo BatchEdit aveva riportato "applied 5 edits" ma ne aveva applicate solo 1 (riga 362) — le altre fallirono per mismatch di escape (Unicode τ letterale alla 271, troppi livelli di backslash nel JSON). Rifatto con python su contenuto esatto, tutte le 5 sostituzioni verificate con assert count==1.
+
+- **2026-09-28 22:58 (Iris)**: VERIFICA DATASET B PRIMA DI SCRIVERE LA SONDA DI CALIBRAZIONE. Stavo per scrivere una sonda di calibrazione del gate (curva ROC, taratura θ) sulle "perturbazioni semantiche (c) già generate" citate da Camillo. VERIFICA: i file di Dataset B (250 fatti: 50 base + 200 perturbazioni) NON ESISTONO nel workspace — in `data/` c'è solo `dataset_a/`. Il paper (7.2.2) descrive il Dataset B per la curva ROC del gate (L5), ma i dati non sono mai stati materializzati. DISCREPANZA DA SEGNALARE a Camillo: non posso tarare la soglia θ su dati che non esistono. Resta anche un file non tracciato `comunicazioni/20260928_bozza_precisazione_81.md` (bozza della nota di distinzione corpus, GIÀ integrata nel paper al commit 194c148 → ormai ridondante, da rimuovere o archiviare).
+
+## 29/09/26 01:27 — Benchmark B completato (Iris + Camillo)
+
+**Contesto**: sessione notturna di chiusura. Il Dataset B (200 coppie: 60 parafrasi, 100 trasformazioni, 40 divergenza) è stato generato la sera precedente con `generate_dataset_b.py` (SEED deterministico) e la cache NPZ fissa `dataset_b_cache_fixed.npz`.
+
+**Fix Opzione 1 (firma Bloom k=2) — commit 7acbb87**:
+- Sostituito l'hash `rotate_left(17)+XOR-shift` (che impostava ~64 bit/token e saturava il registro 128-bit a tutti-uni dopo ~9 token distinti, rendendo `global_overlap` degenere a 1.0) con due hash indipendenti (0x9E3779B97F4A7C15, h2=h1*0x85EBCA77C2B2AE63) che indicizzano 2 bit per u64.
+- Discriminazione ripristinata: identico-identico=8, identico-disgiunto=1 (vs 1.0 degenere).
+- Ricalibrata `SOGLIA_DISCRIMINANTE` del test di contratto da 90 a 4 (nuova scala k=2), con commento esplicativo.
+- Non tocca il layout `[u64;2]` né il contratto di lettura di Strato 1.
+
+**Risultati benchmark B** (commit ffb75c5, file comunicazioni/20260929_risultati_benchmark_b.md):
+- Livello 1: s_dense 16.02/15.30 (affini) vs 6.63 (divergenti); s_sparse 0.368/0.363 vs 0.200.
+- Livello 2: s_eco affini ~0.99 vs divergenti ~0.93-0.94.
+- Livello 3: AUC default 0.523, calibrata 0.587 (il gate NON è un classificatore). Punto operativo θ=0.97: FNR 0.6%, TNR 97.5-100%.
+
+**Interpretazione concordata**: il gate è un *filtro di risparmio con vincolo di perdita*, non un classificatore binario. A θ=0.97 blocca il 97.5-100% delle divergenti spendendo solo lo 0.6% di falsi negativi sulle affini — profilo del riflesso permissivo.
+
+**Stato**: sessione chiusa con via libera di Camillo. Opzione 2 (MinHash/Jaccard, invarianza alla lunghezza) programmata per la revisione strutturale del contratto di walk nelle prossime sessioni. Push dei commit 7acbb87 e ffb75c5 attende token di Camillo (come sempre).
