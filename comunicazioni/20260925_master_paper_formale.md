@@ -246,10 +246,21 @@ Questa proprietà, innocua per il retrieval di similarità, diventa un confine e
 
 Il punto cieco è stato isolato sperimentalmente sulle **coppie causality pure** (stesse parole identiche, sole clausole invertite): il DTW le considera dissimili ($L_5 = 0.208$–$0.229$) ma NON quanto le inversioni di ruolo sintattico (`role_reversal`, $L_5 = 0.05$–$0.12$). La differenza è il **connettivo condiviso al centro** ("di conseguenza", "quindi", "perciò", "pertanto"): la self-attention di ColBERT diffonde il contesto del connettivo sui frame adiacenti, e il DTW sfrutta questo punto di cerniera per allineare localmente i vettori, attenuando la penalizzazione dello scambio causale. L'effetto è qualitativo, non quantitativo: verificato che non scala con la lunghezza del connettivo (mono-token vs bi-token non correlati a $L_5$).
 
-**Conseguenza architetturale.** Questo punto cieco non è un difetto di $L_5$, ma la prova più netta della sua **ortogonalità** rispetto a $L_1$ (ColBERT MaxSim):
+**Conseguenza architetturale.** Questo punto cieco non è un difetto di $L_5$, ma la prova più netta della sua **ortogonalità** rispetto a $L_1$ (ColBERT MaxSim). La validazione completa sul Dataset A (240 coppie, 60 per categoria, esecuzione pulita con 0 errori) fornisce le AUC binarie su tutte le coppie di categorie:
 
-* $L_1$ misura lo spostamento lessicale/semantico puro — eccelle sulla causalità ($0.976$), fallisce sulla negazione ($0.543$).
-* $L_5$ misura la coerenza di struttura e moto semantico — eccelle su negazione ($0.724$) e ruoli ($0.989$), è cieco alla direzione causale ($0.536$).
+| Coppia di categorie | $L_1$ AUC | $L_5$ AUC | Esito |
+|---|---|---|---|
+| role_reversal vs synonymy_control | 0.9308 | **0.9892** | $L_5$ vince |
+| role_reversal vs negation_flip | 0.9358 | **0.9986** | $L_5$ vince |
+| synonymy_control vs negation_flip | 0.5431 | **0.7236** | $L_5$ vince (caso difficile) |
+| causality vs synonymy_control | **0.9756** | 0.5356 | $L_1$ vince |
+| causality vs negation_flip | **0.9514** | 0.8278 | $L_1$ vince |
+| causality vs role_reversal | 0.9992 | 0.9939 | parità |
+
+Il quadro è complementare e simmetrico:
+
+* $L_1$ misura lo spostamento lessicale/semantico puro — eccelle sulla causalità ($0.976$), fallisce sulla negazione ($0.543$, sostanzialmente equivalente al caso).
+* $L_5$ misura la coerenza di struttura e moto semantico — eccelle su negazione ($0.724$) e ruoli ($0.989$–$0.999$), è cieco alla direzione causale ($0.536$).
 
 Le due metriche non sono sovrapponibili con una media pesata: sono dimensioni indipendenti dello stesso spazio semantico, e la **frontiera di Pareto** di `semantic-combiner` le tiene insieme senza appiattirle. La debolezza sulla causalità pura è quindi la giustificazione empirica più diretta dell'architettura a tre stanze: nessuna singola metrica vede tutto, e il combinatore esiste proprio per non dover scegliere.
 
