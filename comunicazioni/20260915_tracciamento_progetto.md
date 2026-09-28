@@ -733,3 +733,18 @@ confronto categoria per categoria.
 
 **File**: comunicazioni/20260926_nota_maxsim_baseline.md (preparatoria),
 comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
+
+## 28/09/26 — Simmetria del DTW e punto cieco sulla causalità (verificato su dati reali)
+
+**Contesto**: il confronto binario (L1 MaxSim vs L5 DTW) su Dataset A mostrava causality con L5 debole (0.536 vs L1 0.976). Camillo proponeva di inquadrarlo come "L5 neutro su causalità".
+
+**Verifiche eseguite (Iris)**:
+1. **Coppie causality PURE** (stesse parole, clausole invertite): 7 coppie, L5 = 0.208-0.229. Le considera dissimili ma NON quanto role_reversal (0.05-0.12). La differenza: il connettivo condiviso al centro che il DTW allinea.
+2. **Simmetria esatta del DTW**: align(A,B) = align(B,A), verificato su dati sintetici (0.8666) e reali (pair_217: 0.2225, pair_145: 0.2287) — identico all'ultima cifra. Proprietà esatta del codice, non approssimazione.
+3. **Cerniera del connettivo non scala con la lunghezza**: "di conseguenza" (2 token) vs mono-token ("quindi","perciò","pertanto") — nessuna correlazione con L5. La cerniera è qualitativa (self-attention che diffonde il contesto sui frame adiacenti), non quantitativa.
+
+**Decisione condivisa (Iris + Camillo)**: limite strutturale della metrica, NON bug. Il DTW è una metrica simmetrica; la causalità è asimmetrica per natura. Il cammino non può codificare l'orientamento causale senza violare gli assiomi di distanza della varietà.
+
+**Impatto sul paper**: (1) congelare i risultati binari come dataset finale; (2) aggiungere nella Sezione 5 la trattazione formale della simmetria rispetto all'orientamento causale; (3) la debolezza su causality pura è la dimostrazione empirica più netta della complementarietà ortogonale L1/L5 → giustificazione architetturale di semantic-combiner e della frontiera di Pareto.
+
+**Stato**: in attesa della risposta di Camillo sulla strategia prima di scrivere la sezione 5.

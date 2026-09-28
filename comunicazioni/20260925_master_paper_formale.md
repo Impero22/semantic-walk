@@ -236,6 +236,23 @@ Per garantire latenze deterministiche in contesti produttivi ad alta frequenza, 
 1. **Circular Buffer per la Programmazione Dinamica**: Poiché l'equazione di Bellman al passo $i$ richiede esclusivamente i valori della riga corrente $i$ e della riga precedente $i-1$, la matrice $N \times M$ viene sostituita da due buffer circolari di dimensione fissa limitata dalla banda massima $2 \times (2 w_{\text{max}} + 1)$ elementi `f32`, allocati direttamente nello stack frame della funzione.
 2. **ThreadLocal ScratchPad per il Backtracking**: Qualora sia richiesta l'estrazione esplicita del cammino di warping $W^*$, i vettori temporanei vengono gestiti tramite una struttura `ScratchPad` pre-allocata all'inizializzazione del thread worker (`ThreadLocal`), azzerando l'overhead di `malloc`/`realloc` nel ciclo di query.
 
+### 5.3 La simmetria della metrica e il punto cieco sull'orientamento causale
+
+> **Autore**: Iris. **Stato**: INTEGRATO (verificato su dati reali, 28/09/26).
+
+Una proprietà strutturale del DTW — ereditata dalla sua natura di distanza — è la **simmetria**: $d(A,B) = d(B,A)$. Verificata come uguaglianza algebrica esatta, non approssimazione numerica, sia su sequenze sintetiche ($0.8666$) sia su coppie reali del Dataset A (`pair_217`: $0.2225$, `pair_145`: $0.2287$, identiche all'ultima cifra in entrambe le direzioni).
+
+Questa proprietà, innocua per il retrieval di similarità, diventa un confine epistemologico quando l'oggetto della misura è una relazione **asimmetrica per natura**. La causalità è orientata: $A \Rightarrow B \neq B \Rightarrow A$ — anzi, delle due una è falsa. Un allineamento di traiettorie che rispetta gli assiomi di distanza della varietà non può codificare l'orientamento causale senza violarli: la direzione non è un grado di libertà della metrica, è un dato che la metrica per costruzione non osserva.
+
+Il punto cieco è stato isolato sperimentalmente sulle **coppie causality pure** (stesse parole identiche, sole clausole invertite): il DTW le considera dissimili ($L_5 = 0.208$–$0.229$) ma NON quanto le inversioni di ruolo sintattico (`role_reversal`, $L_5 = 0.05$–$0.12$). La differenza è il **connettivo condiviso al centro** ("di conseguenza", "quindi", "perciò", "pertanto"): la self-attention di ColBERT diffonde il contesto del connettivo sui frame adiacenti, e il DTW sfrutta questo punto di cerniera per allineare localmente i vettori, attenuando la penalizzazione dello scambio causale. L'effetto è qualitativo, non quantitativo: verificato che non scala con la lunghezza del connettivo (mono-token vs bi-token non correlati a $L_5$).
+
+**Conseguenza architetturale.** Questo punto cieco non è un difetto di $L_5$, ma la prova più netta della sua **ortogonalità** rispetto a $L_1$ (ColBERT MaxSim):
+
+* $L_1$ misura lo spostamento lessicale/semantico puro — eccelle sulla causalità ($0.976$), fallisce sulla negazione ($0.543$).
+* $L_5$ misura la coerenza di struttura e moto semantico — eccelle su negazione ($0.724$) e ruoli ($0.989$), è cieco alla direzione causale ($0.536$).
+
+Le due metriche non sono sovrapponibili con una media pesata: sono dimensioni indipendenti dello stesso spazio semantico, e la **frontiera di Pareto** di `semantic-combiner` le tiene insieme senza appiattirle. La debolezza sulla causalità pura è quindi la giustificazione empirica più diretta dell'architettura a tre stanze: nessuna singola metrica vede tutto, e il combinatore esiste proprio per non dover scegliere.
+
 ---
 
 ## 6. Il Gate Permissivo e il Verdict::Timeout — REV
