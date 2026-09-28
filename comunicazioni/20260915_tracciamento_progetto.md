@@ -748,3 +748,16 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 **Impatto sul paper**: (1) congelare i risultati binari come dataset finale; (2) aggiungere nella Sezione 5 la trattazione formale della simmetria rispetto all'orientamento causale; (3) la debolezza su causality pura è la dimostrazione empirica più netta della complementarietà ortogonale L1/L5 → giustificazione architetturale di semantic-combiner e della frontiera di Pareto.
 
 **Stato**: in attesa della risposta di Camillo sulla strategia prima di scrivere la sezione 5.
+
+## 28/09/26 20:44 — Benchmark Dataset A: prima esecuzione completa (Iris)
+
+**Contesto**: Camillo ha committato il runner batch (c886945) e la sez 5.3 del paper (b885743). Ho eseguito il runner completo.
+
+**Risultati ottenuti (240/240 coppie, 0 errori)**:
+- Medie per categoria: causality L1=20.50 L5=0.199 | negation L1=16.33 L5=0.256 | role_reversal L1=12.60 L5=0.098 | synonymy L1=15.99 L5=0.214
+- AUC binaria: role_reversal vs synonymy L5=0.9892>L1=0.9308 ✓ | role_reversal vs negation L5=0.9986>L1=0.9358 ✓ | synonymy vs negation L5=0.7236>L1=0.5431 ✓ | causality vs synonymy L5=0.5356<L1=0.9756 ✗ | causality vs negation L5=0.8278<L1=0.9514 ✗ | causality vs role_reversal parità (~0.99)
+- Simmetria DTW confermata esatta: pair_217 0.2225, pair_145 0.2287, identiche in entrambe le direzioni.
+
+**Tesi finale raffinata**: il cammino vince dove il significato cambia senza cambiare il lessico (role_reversal, negation) — ma la causalità è il suo punto cieco strutturale (allinea il connettivo condiviso, non vede l'inversione causa↔effetto). Ogni approccio ha il suo punto cieco; il valore sta nel mapparli. La debolezza su causality pura è la dimostrazione empirica più netta dell'ortogonalità L1/L5 → giustifica semantic-combiner e la frontiera di Pareto.
+
+**File**: comunicazioni/20260928_risultati_benchmark_dataset_a.md (commit d3de105).
