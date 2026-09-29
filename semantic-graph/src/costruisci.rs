@@ -33,6 +33,22 @@ impl Fatto {
     }
 }
 
+/// Distanza euclidea pesata dal punto ideale (1.0, 1.0, 1.0) nello spazio
+/// degli assi normalizzati.
+///
+/// Usata come criterio di spareggio deterministico nel tie-break dei
+/// candidati kNN: a parità di score scalare e di non-dominanza sul fronte di
+/// Pareto, vince il candidato la cui triade di sonde è globalmente più vicina
+/// alla saturazione ottimale, pesata secondo i pesi del combiner. In questo
+/// modo una deviazione su un canale pesante (es. sparse) penalizza più di una
+/// su un canale leggero (es. dense), in coerenza con `PESI_CALIBRATI`.
+fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
+    let d = 1.0 - axes.dense;
+    let s = 1.0 - axes.sparse;
+    let c = 1.0 - axes.colbert;
+    pesi[0] * d * d + pesi[1] * s * s + pesi[2] * c * c
+}
+
 /// Calcola il valore al percentile `p` (in `[0, 1]`) di una serie di punteggi.
 ///
 /// Usa l'interpolazione lineare semplice (metodo di tipo "nearest-rank
@@ -123,6 +139,13 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
                     ParetoOrder::ADominatesB => std::cmp::Ordering::Less,
                     ParetoOrder::BDominatesA => std::cmp::Ordering::Greater,
                     _ => std::cmp::Ordering::Equal,
+                })
+                .then_with(|| {
+                    let dist_a = distanza_ottimo_pesata(&a.1, pesi);
+                    let dist_b = distanza_ottimo_pesata(&b.1, pesi);
+                    dist_a
+                        .partial_cmp(&dist_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .then_with(|| a.2.cmp(&b.2))
         });
@@ -296,6 +319,46 @@ mod tests {
         assert!(
             vicini_f0.contains(&NodeId(10)),
             "il vicino di f0 deve essere il dominante (10), trovati: {vicini_f0:?}"
+        );
+    }
+
+    #[test]
+    fn tie_break_pesato_vince_chi_e_piu_vicino_all_ottimo() {
+        // Finding #7 — regressione sul criterio di spareggio pesato.
+        // Due candidati A e B con score scalare IDENTICO e Pareto-incomparabili
+        // (A domina sul dense, B domina sullo sparse): il tie-break non deve
+        // cadere sull'ordine arbitrario del NodeId, ma deve premiare chi è più
+        // vicino al punto ideale (1,1,1) secondo i pesi del combiner.
+        //
+        // pesi = [0.2, 0.8, 0.0]: lo sparse pesa 4 volte il dense.
+        //   A: dense=0.9, sparse=0.2 -> score = 0.2*0.9 + 0.8*0.2 = 0.34
+        //   B: dense=0.5, sparse=0.3 -> score = 0.2*0.5 + 0.8*0.3 = 0.34
+        //   (score identici)
+        //
+        // Distanza pesata dall'ottimo:
+        //   A: 0.2*(0.1)^2 + 0.8*(0.8)^2 = 0.002 + 0.512 = 0.514
+        //   B: 0.2*(0.5)^2 + 0.8*(0.7)^2 = 0.05  + 0.392 = 0.442
+        //   -> B è più vicino (lo sparse pesa di più e B lo satura meglio).
+        //
+        // B ha NodeId 2 (più basso) ma il tie-break pesato deve farlo vincere
+        // su A (NodeId 10) nonostante l'ordine arbitrario del NodeId.
+        let f0 = fatto(1, 1.0, 1.0, 1.0);
+        let a = fatto(10, 0.9, 0.2, 0.5); // domina sul dense
+        let b = fatto(2, 0.5, 0.3, 0.5);  // domina sullo sparse, più vicino all'ottimo pesato
+
+        let config = GraphConfig {
+            k: 1,
+            soglia: 0.0,
+            percentile_cutoff: 0.0,
+            pesi: [0.2, 0.8, 0.0],
+        };
+
+        let g = costruisci(&[f0, a, b], config);
+
+        let vicini_f0 = g.vicini(NodeId(1));
+        assert!(
+            vicini_f0.contains(&NodeId(2)),
+            "il vicino di f0 deve essere B (2), il più vicino all'ottimo pesato, trovati: {vicini_f0:?}"
         );
     }
 
