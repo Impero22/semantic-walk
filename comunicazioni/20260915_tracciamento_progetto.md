@@ -817,3 +817,29 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 **Interpretazione concordata**: il gate è un *filtro di risparmio con vincolo di perdita*, non un classificatore binario. A θ=0.97 blocca il 97.5-100% delle divergenti spendendo solo lo 0.6% di falsi negativi sulle affini — profilo del riflesso permissivo.
 
 **Stato**: sessione chiusa con via libera di Camillo. Opzione 2 (MinHash/Jaccard, invarianza alla lunghezza) programmata per la revisione strutturale del contratto di walk nelle prossime sessioni. Push dei commit 7acbb87 e ffb75c5 attende token di Camillo (come sempre).
+
+## 30/09/26 01:18 — Chiusura finding #7 (tie-break pesato Pareto) — commit 2778c97
+
+**Idee di partenza:**
+- Il finding #7 (dalla review esterna Alibaba del 21/09) riguardava il criterio di ripiego arbitrario su `NodeId` nell'ordinamento dei candidati kNN in `costruisci.rs`, a parità di score scalare e di non-dominanza sul fronte di Pareto.
+- La proposta iniziale di Camillo era la distanza euclidea NON pesata dal punto ideale (1,1,1).
+
+**Obiettivi:**
+- Sostituire il fallback passivo su `NodeId` con un criterio deterministico e fondato sulla qualità semantica.
+- Rendere il tie-break coerente con i pesi del combiner (`PESI_CALIBRATI`), non cieco ad essi.
+
+**Metodi utilizzati:**
+- Revisione critica della proposta di Camillo: la distanza euclidea non pesata è cieca ai pesi (una deviazione sullo sparse, canale pesante 0.552, penalizzerebbe quanto una sul dense, canale leggero 0.215).
+- Proposta di due opzioni: (a) distanza euclidea pesata, (b) dominanza parziale sugli assi pesati.
+- Camillo ha confermato l'opzione (a), passando i pesi da `config.pesi` per mantenerla dinamica.
+- Helper `distanza_ottimo_pesata(axes, pesi)` inserita nella catena di ordinamento tra il Pareto e il fallback su NodeId.
+- Test di regressione dedicato: due candidati score-identici e Pareto-incomparabili, pesi [0.2, 0.8, 0.0] — vince chi satura meglio il canale pesante.
+
+**Risultati attesi:**
+- Tie-break deterministico, fondato sulla qualità semantica, coerente coi pesi calibrati.
+- NodeId ridotto a ultimissimo paracadute di stabilità.
+
+**Risultati ottenuti:**
+- Patch applicata e committata (2778c97). 21 test verdi nel crate semantic-graph, workspace intero verde.
+- Test di regressione `tie_break_pesato_vince_chi_e_piu_vicino_all_ottimo` passa.
+- Commit locale — push attende token GitHub di Camillo (insieme a 7acbb87, ffb75c5 e gli altri in attesa).
