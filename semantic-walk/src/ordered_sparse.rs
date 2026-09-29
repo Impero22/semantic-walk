@@ -35,6 +35,17 @@
 /// di stabilità del contratto.
 pub type TokenId = u32;
 
+/// Soglia di confine per il verdetto di "presenza" (Invariante di Stabilità,
+/// 2026-09-29). Deve coincidere con `SPARSE_EPSILON` di vetta-embedder
+/// (CrispEmbed, api_sparse.cpp): un peso con |w| <= SPARSE_EPSILON vive nella
+/// zona di rumore numerico attorno a zero (~0.002 misurato sul Dataset B), il
+/// cui segno non è affidabile tra build o macchine diverse. Nel consumer il
+/// token di confine è trattato come NON-presente per la firma del guardiano
+/// (Strato 1) e per il Jaccard posizionale (Strato 2) — la medesima definizione
+/// di presenza che vetta-embedder marca come status 3 (uncertain). Se questa
+/// soglia cambia da un lato, va cambiata identica dall'altro.
+pub const SPARSE_EPSILON: f32 = 0.002;
+
 /// Il numero di posizioni di una sequenza ordered-sparse.
 ///
 /// `u32` per compatibilità con gli offset (che indicizzano il buffer dei
@@ -68,7 +79,7 @@ pub struct OrderedSparseSequence {
     ///
     /// ## Contratto dei soppressi
     ///
-    /// La firma riassume i soli token emessi (`weight > 0`). Un token
+    /// La firma riassume i soli token emessi (`weight > SPARSE_EPSILON`). Un token
     /// soppresso (`weight <= 0`) non è un token "presente" nel cammino per
     /// il guardiano del pruning: se contribuisse alla firma, due traiettorie
     /// potrebbero risultare compatibili perché condividono token che in
@@ -137,9 +148,10 @@ impl OrderedSparseSequence {
                         return Err("Il peso di un token deve essere finito");
                     }
                     // Aggrega il token nella firma globale SOLO se è emesso
-                    // (weight > 0). Un token soppresso (weight <= 0) non è
+                    // (weight > SPARSE_EPSILON). Un token soppresso o di
+                    // confine (weight <= SPARSE_EPSILON) non è
                     // "presente" nel cammino per il guardiano del pruning.
-                    if weight > 0.0 {
+                    if weight > SPARSE_EPSILON {
                         // Firma Bloom k=2 per registro (Fix Opzione 1).
                         // Due hash indipendenti indicizzano due bit distinti
                         // in ciascun u64. La versione precedente (rotate_left(17)
@@ -170,9 +182,10 @@ impl OrderedSparseSequence {
                     return Err("Il peso di un token deve essere finito");
                 }
                 // Aggrega il token nella firma globale SOLO se è emesso
-                // (weight > 0). I soppressi restano nel buffer ma non
+                // (weight > SPARSE_EPSILON). I soppressi e i token di
+                // confine restano nel buffer ma non
                 // contribuiscono alla firma del pruning.
-                if weight > 0.0 {
+                if weight > SPARSE_EPSILON {
                     // Firma Bloom k=2 per registro (Fix Opzione 1).
                     // Due hash indipendenti indicizzano due bit distinti
                     // in ciascun u64. La versione precedente (rotate_left(17)
@@ -261,7 +274,8 @@ impl OrderedSparseSequence {
             return 1.0;
         }
         // Two-pointer merge su frame ordinati, contando SOLO i token emessi
-        // (w > 0). I soppressi non sono "presenza" per il Jaccard posizionale:
+        // (w > SPARSE_EPSILON). I soppressi e i token di confine non sono
+        // "presenza" per il Jaccard posizionale:
         // la medesima definizione di presenza della firma del pruning O(1).
         // O(n+m) senza allocazioni temporanee (niente HashSet/Vec). I token
         // sono ordinati per costruzione in `from_frames`.
@@ -269,12 +283,12 @@ impl OrderedSparseSequence {
         let mut inter = 0usize;
         let mut union = 0usize;
         while pa < ta.len() && pb < tb.len() {
-            // Salta i soppressi su entrambi i lati.
-            if wa[pa] <= 0.0 {
+            // Salta i soppressi e i token di confine su entrambi i lati.
+            if wa[pa] <= SPARSE_EPSILON {
                 pa += 1;
                 continue;
             }
-            if wb[pb] <= 0.0 {
+            if wb[pb] <= SPARSE_EPSILON {
                 pb += 1;
                 continue;
             }
@@ -292,13 +306,13 @@ impl OrderedSparseSequence {
         }
         // Conta i token emessi residui (non consumati dal merge).
         while pa < ta.len() {
-            if wa[pa] > 0.0 {
+            if wa[pa] > SPARSE_EPSILON {
                 union += 1;
             }
             pa += 1;
         }
         while pb < tb.len() {
-            if wb[pb] > 0.0 {
+            if wb[pb] > SPARSE_EPSILON {
                 union += 1;
             }
             pb += 1;
