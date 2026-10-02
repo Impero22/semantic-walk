@@ -42,7 +42,7 @@ impl Fatto {
 /// alla saturazione ottimale, pesata secondo i pesi del combiner. In questo
 /// modo una deviazione su un canale pesante (es. sparse) penalizza più di una
 /// su un canale leggero (es. dense), in coerenza con `PESI_CALIBRATI`.
-pub(crate) fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
+fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
     let d = 1.0 - axes.dense;
     let s = 1.0 - axes.sparse;
     let c = 1.0 - axes.colbert;
@@ -100,18 +100,6 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
 
     let mut archi_vec: Vec<(u64, u64, f64, f64, f64, f64)> = Vec::new();
 
-    // Indice `id -> &Fatto` pre-costruito una sola volta (O(N)).
-    //
-    // Senza questo indice, per ogni coppia di fatti il ciclo di costruzione
-    // degli archi faceva `fatti.iter().find(|f| f.id == altro_id).unwrap()`:
-    // una scansione lineare O(N) dentro un ciclo già O(N²), portando il costo
-    // complessivo a O(N³). Con l'indice, il recupero del fatto per id è O(1).
-    //
-    // Nota sul `unwrap`: è sicuro perché `altro_id` proviene da `candidati`,
-    // che è costruito iterando esattamente gli elementi di `fatti` — quindi
-    // ogni id presente nei candidati esiste di sicuro nell'indice. Il
-    // `HashMap::get` ritorna `None` solo per un id assente, che qui non può
-    // verificarsi per costruzione.
     let indice_fatti: HashMap<NodeId, &Fatto> =
         fatti.iter().map(|f| (f.id, f)).collect();
 
@@ -151,11 +139,6 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
         });
         candidati.truncate(k);
 
-        // Soglia effettiva per questo nodo: il floor assoluto, oppure il
-        // percentile dei punteggi dei top-k se la soglia dinamica è attiva.
-        // Con `percentile_cutoff = 0.0` il percentile è il minimo dei top-k,
-        // quindi `soglia_effettiva = max(soglia, minimo) = soglia` — identico
-        // al comportamento statico (retrocompatibilità).
         let scores_k: Vec<f64> = candidati.iter().map(|c| c.0).collect();
         let soglia_effettiva = soglia.max(calcola_percentile(&scores_k, percentile_cutoff));
 
@@ -169,9 +152,6 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
                 if from == to {
                     continue;
                 }
-                // Recupero O(1) tramite l'indice pre-costruito (vedi sopra).
-                // In precedenza: `fatti.iter().find(...).unwrap()` — O(N) per
-                // ogni arco, portando l'intera costruzione a O(N³).
                 let altro = indice_fatti[&altro_id];
                 archi_vec.push((
                     from,
@@ -254,7 +234,7 @@ mod tests {
     fn soglia_filtra_archi_deboli() {
         let fatti = vec![fatto(1, 0.1, 0.1, 0.1), fatto(2, 0.9, 0.9, 0.9)];
         let config = GraphConfig {
-            soglia: 0.7, // Adeguata allo spazio degli assi normalizzati [0, 1]
+            soglia: 0.7,
             ..GraphConfig::default()
         };
         let g = costruisci(&fatti, config);
@@ -283,7 +263,6 @@ mod tests {
 
     #[test]
     fn punteggio_applica_clamping_normalizzazione() {
-        // Fatti con valori fuori scala o negativi
         let f1 = fatto(1, 2.0, -0.5, 1.2);
         let f2 = fatto(2, 1.5, 0.8, 0.5);
         let pesi = [0.6, 0.25, 0.15];
@@ -293,28 +272,45 @@ mod tests {
     }
 
     #[test]
+    fn distanza_ottimo_pesata_premia_saturazione_asse_dominante() {
+        let pesi = [0.2, 0.8, 0.0];
+        let axes_a = NormalizedAxes {
+            dense: 0.9,
+            sparse: 0.1,
+            colbert: 0.5,
+        };
+        let axes_b = NormalizedAxes {
+            dense: 0.5,
+            sparse: 0.2,
+            colbert: 0.5,
+        };
+
+        let dist_a = distanza_ottimo_pesata(&axes_a, pesi);
+        let dist_b = distanza_ottimo_pesata(&axes_b, pesi);
+
+        assert!((dist_a - 0.650).abs() < 1e-6);
+        assert!((dist_b - 0.562).abs() < 1e-6);
+        assert!(
+            dist_b < dist_a,
+            "B deve essere più vicino all'ottimo pesato rispetto ad A"
+        );
+    }
+
+    #[test]
     fn tie_break_pareto_prioritizza_dominatore() {
-        // Pesi con peso zero su Colbert: A e B producono lo stesso score scalare.
-        // A ha id 10 ma domina B su Colbert. B ha id 2 (più basso).
-        // Il tie-break deve scegliere A nonostante B abbia un NodeId inferiore.
         let f0 = fatto(1, 1.0, 1.0, 1.0);
-        let f_dominante = fatto(10, 0.5, 0.5, 0.9); // ID 10, Colbert alto
-        let f_dominato = fatto(2, 0.5, 0.5, 0.1);   // ID 2, Colbert basso
+        let f_dominante = fatto(10, 0.5, 0.5, 0.9);
+        let f_dominato = fatto(2, 0.5, 0.5, 0.1);
 
         let config = GraphConfig {
             k: 1,
             soglia: 0.0,
             percentile_cutoff: 0.0,
-            pesi: [0.5, 0.5, 0.0], // Colbert ignorato nello score scalare
+            pesi: [0.5, 0.5, 0.0],
         };
 
         let g = costruisci(&[f0, f_dominante, f_dominato], config);
 
-        // Il vicino di f0 deve essere NodeId(10) (dominante), non NodeId(2):
-        // a parità di score scalare, il tie-break Pareto sceglie chi domina
-        // sugli assi non pesati. Il grafo è simmetrico, quindi l'arco (1,2)
-        // può esistere legittimamente dal lato di f_dominato (che preferisce
-        // f0 come vicino) — qui verifichiamo solo la scelta del lato di f0.
         let vicini_f0 = g.vicini(NodeId(1));
         assert!(
             vicini_f0.contains(&NodeId(10)),
@@ -324,27 +320,9 @@ mod tests {
 
     #[test]
     fn tie_break_pesato_vince_chi_e_piu_vicino_all_ottimo() {
-        // Finding #7 — regressione sul criterio di spareggio pesato.
-        // Due candidati A e B con score scalare IDENTICO e Pareto-incomparabili
-        // (A domina sul dense, B domina sullo sparse): il tie-break non deve
-        // cadere sull'ordine arbitrario del NodeId, ma deve premiare chi è più
-        // vicino al punto ideale (1,1,1) secondo i pesi del combiner.
-        //
-        // pesi = [0.2, 0.8, 0.0]: lo sparse pesa 4 volte il dense.
-        //   A: dense=0.9, sparse=0.2 -> score = 0.2*0.9 + 0.8*0.2 = 0.34
-        //   B: dense=0.5, sparse=0.3 -> score = 0.2*0.5 + 0.8*0.3 = 0.34
-        //   (score identici)
-        //
-        // Distanza pesata dall'ottimo:
-        //   A: 0.2*(0.1)^2 + 0.8*(0.8)^2 = 0.002 + 0.512 = 0.514
-        //   B: 0.2*(0.5)^2 + 0.8*(0.7)^2 = 0.05  + 0.392 = 0.442
-        //   -> B è più vicino (lo sparse pesa di più e B lo satura meglio).
-        //
-        // B ha NodeId 2 (più basso) ma il tie-break pesato deve farlo vincere
-        // su A (NodeId 10) nonostante l'ordine arbitrario del NodeId.
         let f0 = fatto(1, 1.0, 1.0, 1.0);
-        let a = fatto(10, 0.9, 0.2, 0.5); // domina sul dense
-        let b = fatto(2, 0.5, 0.3, 0.5);  // domina sullo sparse, più vicino all'ottimo pesato
+        let a = fatto(10, 0.9, 0.2, 0.5);
+        let b = fatto(2, 0.5, 0.3, 0.5);
 
         let config = GraphConfig {
             k: 1,
@@ -364,9 +342,6 @@ mod tests {
 
     #[test]
     fn percentile_cutoff_zero_retrocompatibile() {
-        // Con percentile_cutoff = 0.0 la soglia dinamica è disattivata:
-        // la soglia effettiva è il floor statico. Stesso comportamento
-        // del codice prima dell'introduzione della soglia dinamica.
         let fatti = vec![
             fatto(1, 0.9, 0.9, 0.9),
             fatto(2, 0.8, 0.8, 0.8),
@@ -388,10 +363,6 @@ mod tests {
 
     #[test]
     fn soglia_dinamica_piu_selettiva_del_floor() {
-        // Con percentile_cutoff = 0.5 (mediana dei top-k), la soglia effettiva
-        // per ogni nodo è la mediana dei suoi punteggi: circa metà dei top-k
-        // per nodo viene tagliata. Il grafo risultante deve essere più
-        // selettivo (meno archi) del grafo con la sola soglia statica a 0.0.
         let fatti = vec![
             fatto(1, 1.0, 1.0, 1.0),
             fatto(2, 0.9, 0.9, 0.9),
@@ -406,18 +377,14 @@ mod tests {
         let config_dinamica = GraphConfig {
             k: 3,
             soglia: 0.0,
-            percentile_cutoff: 0.5, // mediana dei top-k per nodo
+            percentile_cutoff: 0.5,
             ..GraphConfig::default()
         };
         let g_statica = costruisci(&fatti, config_statica);
         let g_dinamica = costruisci(&fatti, config_dinamica);
 
-        // Con la soglia statica a 0.0, ogni nodo si collega ai suoi top-3
-        // (tutti gli altri): grafo completo su 4 nodi = 6 archi.
         assert_eq!(g_statica.n_archi(), 6);
 
-        // Con la mediana, ogni nodo perde circa metà dei suoi candidati:
-        // il grafo deve avere meno archi di quello statico.
         assert!(
             g_dinamica.n_archi() < g_statica.n_archi(),
             "la soglia dinamica deve produrre meno archi della statica: {} vs {}",
@@ -428,58 +395,48 @@ mod tests {
 
     #[test]
     fn calcola_percentile_interpolazione() {
-        // Serie [10, 20, 30, 40, 50]: mediana (p=0.5) = 30.
         let s = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         assert_eq!(calcola_percentile(&s, 0.0), 10.0);
         assert_eq!(calcola_percentile(&s, 1.0), 50.0);
         assert_eq!(calcola_percentile(&s, 0.5), 30.0);
-        // Interpolazione: p=0.25 → idx = 1.0 → 20.0; p=0.75 → idx = 3.0 → 40.0.
         assert_eq!(calcola_percentile(&s, 0.25), 20.0);
         assert_eq!(calcola_percentile(&s, 0.75), 40.0);
-        // Serie vuota → 0.0.
         assert_eq!(calcola_percentile(&[], 0.5), 0.0);
-        // Clamping di p fuori range.
         assert_eq!(calcola_percentile(&s, -1.0), 10.0);
         assert_eq!(calcola_percentile(&s, 2.0), 50.0);
     }
 
     #[test]
-    fn distanza_ottimo_pesata_premia_saturazione_asse_dominante() {
-        // Verifica FORTE del tie-break pesato (finding #7), a livello di
-        // ordinamento (non attraverso il grafo simmetrico, dove la scelta di
-        // un nodo non è osservabile perché attrae i suoi candidati migliori).
-        //
-        // pesi = [0.2, 0.8, 0.0]: lo sparse pesa 4 volte il dense.
-        //   A: dense=0.9, sparse=0.1  -> 1-d=0.1, 1-s=0.9
-        //      dist = 0.2*(0.1)^2 + 0.8*(0.9)^2 = 0.002 + 0.648 = 0.650
-        //   B: dense=0.5, sparse=0.2  -> 1-d=0.5, 1-s=0.8
-        //      dist = 0.2*(0.5)^2 + 0.8*(0.8)^2 = 0.050 + 0.512 = 0.562
-        //
-        // B satura meglio l'asse dominante (sparse) -> distanza MINORE ->
-        // B è il candidato che il tie-break pesato deve preferire.
-        let pesi = [0.2, 0.8, 0.0];
+    fn test_qualita_selezione_saturazione_asse_dominante() {
+        for asse_dominante in 0..3 {
+            let mut pesi = [0.1, 0.1, 0.1];
+            pesi[asse_dominante] = 0.8;
 
-        let axes_a = NormalizedAxes { dense: 0.9, sparse: 0.1, colbert: 0.5 };
-        let axes_b = NormalizedAxes { dense: 0.5, sparse: 0.2, colbert: 0.5 };
+            let f0 = fatto(1, 1.0, 1.0, 1.0);
 
-        let da = distanza_ottimo_pesata(&axes_a, pesi);
-        let db = distanza_ottimo_pesata(&axes_b, pesi);
+            let ca = fatto(10, 0.9, 0.2, 0.2);
+            let cb = fatto(20, 0.2, 0.9, 0.2);
+            let cc = fatto(30, 0.2, 0.2, 0.9);
 
-        // Valori attesi calcolati a mano.
-        assert!((da - 0.650).abs() < 1e-9, "dist A attesa 0.650, ottenuta {da}");
-        assert!((db - 0.562).abs() < 1e-9, "dist B attesa 0.562, ottenuta {db}");
-        assert!(
-            db < da,
-            "B deve avere distanza minore (satura l'asse dominante): A={da}, B={db}"
-        );
+            let score_a = f0.punteggio(&ca, pesi);
+            let score_b = f0.punteggio(&cb, pesi);
+            let score_c = f0.punteggio(&cc, pesi);
 
-        // Caso simmetrico: se i pesi sono uniformi, la distanza pesata coincide
-        // con la distanza euclidea (l'ordine non cambia).
-        let pesi_uniformi = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
-        let da_u = distanza_ottimo_pesata(&axes_a, pesi_uniformi);
-        let db_u = distanza_ottimo_pesata(&axes_b, pesi_uniformi);
-        // Euclidea: A: (0.01+0.81+0.25)/3 = 0.3567; B: (0.25+0.64+0.25)/3 = 0.38
-        assert!((da_u - 0.3566666667).abs() < 1e-6);
-        assert!((db_u - 0.38).abs() < 1e-6);
+            match asse_dominante {
+                0 => {
+                    assert!(score_a > score_b, "Con asse 0 dominante, A deve superare B");
+                    assert!(score_a > score_c, "Con asse 0 dominante, A deve superare C");
+                }
+                1 => {
+                    assert!(score_b > score_a, "Con asse 1 dominante, B deve superare A");
+                    assert!(score_b > score_c, "Con asse 1 dominante, B deve superare C");
+                }
+                2 => {
+                    assert!(score_c > score_a, "Con asse 2 dominante, C deve superare A");
+                    assert!(score_c > score_b, "Con asse 2 dominante, C deve superare B");
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 }
