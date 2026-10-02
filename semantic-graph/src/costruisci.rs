@@ -42,7 +42,7 @@ impl Fatto {
 /// alla saturazione ottimale, pesata secondo i pesi del combiner. In questo
 /// modo una deviazione su un canale pesante (es. sparse) penalizza più di una
 /// su un canale leggero (es. dense), in coerenza con `PESI_CALIBRATI`.
-fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
+pub(crate) fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
     let d = 1.0 - axes.dense;
     let s = 1.0 - axes.sparse;
     let c = 1.0 - axes.colbert;
@@ -441,5 +441,45 @@ mod tests {
         // Clamping di p fuori range.
         assert_eq!(calcola_percentile(&s, -1.0), 10.0);
         assert_eq!(calcola_percentile(&s, 2.0), 50.0);
+    }
+
+    #[test]
+    fn distanza_ottimo_pesata_premia_saturazione_asse_dominante() {
+        // Verifica FORTE del tie-break pesato (finding #7), a livello di
+        // ordinamento (non attraverso il grafo simmetrico, dove la scelta di
+        // un nodo non è osservabile perché attrae i suoi candidati migliori).
+        //
+        // pesi = [0.2, 0.8, 0.0]: lo sparse pesa 4 volte il dense.
+        //   A: dense=0.9, sparse=0.1  -> 1-d=0.1, 1-s=0.9
+        //      dist = 0.2*(0.1)^2 + 0.8*(0.9)^2 = 0.002 + 0.648 = 0.650
+        //   B: dense=0.5, sparse=0.2  -> 1-d=0.5, 1-s=0.8
+        //      dist = 0.2*(0.5)^2 + 0.8*(0.8)^2 = 0.050 + 0.512 = 0.562
+        //
+        // B satura meglio l'asse dominante (sparse) -> distanza MINORE ->
+        // B è il candidato che il tie-break pesato deve preferire.
+        let pesi = [0.2, 0.8, 0.0];
+
+        let axes_a = NormalizedAxes { dense: 0.9, sparse: 0.1, colbert: 0.5 };
+        let axes_b = NormalizedAxes { dense: 0.5, sparse: 0.2, colbert: 0.5 };
+
+        let da = distanza_ottimo_pesata(&axes_a, pesi);
+        let db = distanza_ottimo_pesata(&axes_b, pesi);
+
+        // Valori attesi calcolati a mano.
+        assert!((da - 0.650).abs() < 1e-9, "dist A attesa 0.650, ottenuta {da}");
+        assert!((db - 0.562).abs() < 1e-9, "dist B attesa 0.562, ottenuta {db}");
+        assert!(
+            db < da,
+            "B deve avere distanza minore (satura l'asse dominante): A={da}, B={db}"
+        );
+
+        // Caso simmetrico: se i pesi sono uniformi, la distanza pesata coincide
+        // con la distanza euclidea (l'ordine non cambia).
+        let pesi_uniformi = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
+        let da_u = distanza_ottimo_pesata(&axes_a, pesi_uniformi);
+        let db_u = distanza_ottimo_pesata(&axes_b, pesi_uniformi);
+        // Euclidea: A: (0.01+0.81+0.25)/3 = 0.3567; B: (0.25+0.64+0.25)/3 = 0.38
+        assert!((da_u - 0.3566666667).abs() < 1e-6);
+        assert!((db_u - 0.38).abs() < 1e-6);
     }
 }
