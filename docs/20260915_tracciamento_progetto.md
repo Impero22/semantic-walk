@@ -843,3 +843,29 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 - Patch applicata e committata (2778c97). 21 test verdi nel crate semantic-graph, workspace intero verde.
 - Test di regressione `tie_break_pesato_vince_chi_e_piu_vicino_all_ottimo` passa.
 - Commit locale — push attende token GitHub di Camillo (insieme a 7acbb87, ffb75c5 e gli altri in attesa).
+
+## 03/10/26 23:19 — Verifica staticità bound F6 e domanda (a)/(b) a Camillo
+
+**Idee di partenza:**
+- Il commit 2746332 (03/10) ha ricalibrato `MIN_STEP` come minimo empirico osservato (debug 0.000015, release 0.0002), non più "lower bound garantito per costruzione" — la sezione 8.6 del design registra che `u≠v` garantisce solo `action > 0`, non un minimo non banale.
+- Restava aperta la verifica 2 del Coder (ΔS_min ricalcolato a ogni mutazione): copre il caso di grafo dinamico, ma nel flusso attuale (statico) serve? E il `debug_assert` in `extend` è una garanzia o un'assicurazione?
+
+**Obiettivi:**
+- Verificare sul codice reale che l'insieme di adiacenza su cui `measure_min_step` misura il minimo sia lo stesso su cui la frontiera espande.
+- Formulare la domanda (a)/(b) a Camillo in modo preciso, senza chiudere la tornata F6 da sola.
+
+**Metodi utilizzati:**
+- Lettura integrale di `frontier.rs` e del benchmark `bench_frontier_throughput.rs`.
+- Verifica: la frontiera espande esclusivamente su `graph.nodes[nid].neighbors` (insieme di adiacenza completo e statico, costruito una volta in `from_trajectories`, mai mutato durante la ricerca). `measure_min_step` è misurato sullo stesso identico insieme (`for &nb in &node.neighbors`).
+- Documentazione della verifica nella sezione 8.7 del design (comunicazioni/20261003_propagazione_frontiera_design.md) + backup locale.
+
+**Risultati attesi:**
+- Conferma che nel flusso statico il bound è valido: ogni arco che la frontiera attraversa era già nell'insieme su cui è stato misurato il minimo.
+- Il `debug_assert` in `extend` è una garanzia, non un'assicurazione — per l'uso attuale.
+
+**Risultati ottenuti:**
+- **Verifica confermata**: il flusso attuale (grafo statico) è onesto e stretto. Il bound F6 è valido.
+- **Fragilità teorica residua** documentata: su un futuro grafo dinamico (archi che entrano durante la walk), il `debug_assert` sarebbe l'unica sentinella e in release il bound si romperebbe silenziosamente (falso negativo, ciò che il gate permissivo vieta).
+- **Domanda posta a Camillo** (territorio condiviso): (a) dichiarare la verifica 2 come requisito per l'uso su grafo dinamico, documentandola come limite del flusso attuale; oppure (b) implementare subito la via ibrida per-livello (gestione esplicita degli archi degeneri come "verdetto incerto", analoga a SPARSE_EPSILON).
+- **Inclinazione di Iris: (a) per ora** — il flusso statico è onesto e stretto; la via ibrida va calibrata sui dati reali quando CrispEmbed fornirà sparse e colbert veri. Decisione finale a Camillo.
+- Documento di design aggiornato (sezione 8.7) e backup in /home/iris/backup_semantic_geo_docs/. In attesa della risposta di Camillo.
