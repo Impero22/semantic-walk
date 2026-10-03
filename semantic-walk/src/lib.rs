@@ -189,3 +189,5 @@ pub mod adapter;
 pub mod parse;
 
 pub mod frontier;
+
+pub mod solver;

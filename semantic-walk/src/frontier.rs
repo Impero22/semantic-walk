@@ -66,7 +66,8 @@ pub const PRUNE_EPSILON: f32 = 0.002;
 /// Un nodo della frontiera di ricerca del cammino.
 ///
 /// Porta con sé lo stato cinematico, il costo inerziale cumulato fino a qui,
-/// l'ampiezza corrente e i bound di esclusione calcolati dai minimi.
+/// l'ampiezza corrente, la sequenza di nodi visitati e i bound di esclusione
+/// calcolati dai minimi.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrontierNode {
     /// Il fatto visitato da questo passo del cammino.
@@ -77,6 +78,8 @@ pub struct FrontierNode {
     pub cum_cost: f32,
     /// Il numero di passi compiuti (profondità nel cammino).
     pub depth: usize,
+    /// La sequenza di nodi visitati fino a questo passo (storia del cammino).
+    pub nodes: Vec<FactId>,
     /// Il costo minimo inerziale per passo (ΔS_min per-livello).
     ///
     /// Non è un lower bound teorico garantito da `u ≠ v`: le componenti
@@ -92,13 +95,15 @@ pub struct FrontierNode {
 impl FrontierNode {
     /// Costruisce un nodo radice della frontiera.
     ///
-    /// La radice ha costo cumulato zero, profondità zero e ampiezza unitaria.
+    /// La radice ha costo cumulato zero, profondità zero, ampiezza unitaria
+    /// e una storia che contiene il solo nodo radice.
     pub fn root(node_id: FactId, state: KinematicState, min_step: f32) -> Self {
         Self {
             node_id,
             state,
             cum_cost: 0.0,
             depth: 0,
+            nodes: vec![node_id],
             min_step,
             amplitude: 1.0,
         }
@@ -155,12 +160,15 @@ impl FrontierNode {
             action >= min_step - PRUNE_EPSILON,
             "arco traversato con costo {action} sotto ΔS_min {min_step}"
         );
+        let mut nodes = self.nodes.clone();
+        nodes.push(next_id);
         let cum_cost = self.cum_cost + action;
         Some(Self {
             node_id: next_id,
             state: next_state,
             cum_cost,
             depth: self.depth + 1,
+            nodes,
             min_step,
             amplitude: (-cum_cost / kappa).exp(),
         })
@@ -335,6 +343,7 @@ mod tests {
             state: state(1.0, 0.0, 0.0),
             cum_cost: 5.0,
             depth: 2,
+            nodes: vec![0],
             min_step: 0.5,
             amplitude: 0.0,
         };
@@ -354,6 +363,7 @@ mod tests {
             state: state(2.0, 0.0, 0.0),
             cum_cost: 10.0,
             depth: 1,
+            nodes: vec![0, 1],
             min_step: 0.5,
             amplitude: (-10.0f32 / 2.0).exp(),
         });
