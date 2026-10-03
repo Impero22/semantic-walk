@@ -274,6 +274,57 @@ pub struct QuantumResolver {
     pub kappa_break: f32,
 }
 
+/// Bound di esclusione per il pre-filtro del collapse (Finding #6).
+///
+/// Trasferimento dell'eliminazione a livello di candidato di Sonus
+/// ($L_c > U_d$) al collapse di produzione, dove l'oracolo è l'accumulo di
+/// **ampiezze** $\Psi(c) = \sum \exp(-S_i / \kappa)$, non la somma dei costi.
+///
+/// I bound sono calcolati dai **minimi**, non dalle somme piene, così il
+/// pre-filtro risparmia davvero il calcolo dell'accumulo sui candidati che
+/// non possono vincere:
+///
+/// - **U_d** (upper bound del candidato $d$): $U_d = n_d \cdot e^{-S_{\min,d}/\kappa}$,
+///   dove $n_d$ è il numero di rami validi di $d$ e $S_{\min,d}$ il suo costo
+///   minimo. È un bound superiore garantito perché $\Psi(d) \le n_d \cdot e^{-S_{\min,d}/\kappa}$.
+/// - **Incumbent**: il candidato con $U$ massimo.
+/// - **L_c** (lower bound dell'incumbent): $L_c = e^{-S_{\min,c}/\kappa}$ — il
+///   suo ramo migliore contribuisce almeno questo a $\Psi(c)$.
+///
+/// Un candidato $d$ con $U_d < L_c$ non può vincere: $\Psi(d) \le U_d < L_c \le \Psi(c)$.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bound {
+    /// Lower bound garantito dell'ampiezza accumulata $\Psi(c)$.
+    pub lower: f32,
+    /// Upper bound garantito dell'ampiezza accumulata $\Psi(c)$.
+    pub upper: f32,
+}
+
+impl Bound {
+    /// Costruisce un bound dai rami validi di un candidato.
+    ///
+    /// `n_valid` è il numero di rami che superano il filtro di decoerenza,
+    /// `s_min` il costo minimo tra di essi, `kappa_break` il damping.
+    pub fn from_valid_branches(n_valid: usize, s_min: f32, kappa_break: f32) -> Self {
+        if n_valid == 0 || s_min.is_nan() {
+            return Self { lower: 0.0, upper: 0.0 };
+        }
+        let amp_best = (-s_min / kappa_break).exp();
+        Self {
+            lower: amp_best,
+            upper: (n_valid as f32) * amp_best,
+        }
+    }
+
+    /// `true` se questo candidato non può vincere contro l'incumbent.
+    ///
+    /// Corrisponde a $U_d < L_c$: l'ampiezza massima raggiungibile di $d$ è
+    /// sotto il minimo garantito del vincitore corrente.
+    pub fn cannot_beat(&self, incumbent_lower: f32) -> bool {
+        self.upper < incumbent_lower
+    }
+}
+
 impl QuantumResolver {
     pub fn new(divergence_threshold: f32, horizon: usize, kappa_break: f32) -> Self {
         Self { divergence_threshold, horizon, kappa_break }
@@ -306,17 +357,65 @@ impl QuantumResolver {
     /// vuota). I rami senza `candidate_id` vengono ignorati: un ramo senza
     /// destinazione non può collassare su nulla.
     pub fn collapse(&self, branches: &[WalkBranch]) -> Option<WalkBranch> {
-        // Passaggio 1+2: filtro di decoerenza + accumulo ampiezze per candidato.
+        // Passaggio 1: pre-filtro F6 — calcolo dei bound dai minimi.
+        //
+        // L'oracolo del collapse è l'accumulo di ampiezze Ψ(c) = Σ exp(−S_i/κ).
+        // Per escludere i candidati che non possono vincere SENZA sommare tutte
+        // le ampiezze, calcoliamo un bound superiore dai minimi: per ogni
+        // candidato tracciamo il costo minimo S_min tra i suoi rami validi e il
+        // loro numero n. Da questi, U_d = n · exp(−S_min/κ) è un bound
+        // superiore garantito di Ψ(d), e L_d = exp(−S_min/κ) è un bound
+        // inferiore garantito (il ramo migliore contribuisce almeno questo).
+        //
+        // Nota: i rami NaN sono trattati come decoerenti (NaN-as-absence,
+        // Finding #6) — `NaN > x` è `false`, quindi senza il guard esplicito un
+        // ramo NaN passerebbe il filtro e avvelenerebbe l'accumulatore
+        // (0.0 + NaN = NaN), rendendo il vincitore non-deterministico.
+        let mut min_cost: HashMap<FactId, f32> = HashMap::new();
+        let mut count: HashMap<FactId, usize> = HashMap::new();
+        for b in branches {
+            let Some(cid) = b.candidate_id else { continue };
+            if b.action > self.divergence_threshold || b.action.is_nan() || b.amplitude.is_nan() {
+                continue;
+            }
+            let e = min_cost.entry(cid).or_insert(f32::INFINITY);
+            if b.action < *e {
+                *e = b.action;
+            }
+            *count.entry(cid).or_insert(0) += 1;
+        }
+        if min_cost.is_empty() {
+            return None;
+        }
+
+        // Calcola i bound per candidato.
+        let mut bounds: HashMap<FactId, Bound> = HashMap::with_capacity(min_cost.len());
+        for (cid, n) in count.iter() {
+            let s_min = min_cost[cid];
+            bounds.insert(*cid, Bound::from_valid_branches(*n, s_min, self.kappa_break));
+        }
+
+        // Incumbent: il candidato con upper massimo. Il suo lower è un bound
+        // inferiore garantito del vincitore reale: il vincitore ha Ψ ≥ Ψ(incumbent)
+        // ≥ L_inc, quindi ogni candidato con U_d < L_inc non può vincere.
+        let incumbent_id = bounds
+            .iter()
+            .max_by(|a, b| a.1.upper.partial_cmp(&b.1.upper).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| *id)?;
+        let incumbent_lower = bounds[&incumbent_id].lower;
+
+        // Passaggio 2: accumulo ampiezze SOLO sui superstiti (candidati che
+        // possono ancora vincere). L'accumulo pieno si fa solo qui — il
+        // pre-filtro ha già scartato chi non può raggiungere l'incumbent.
         let mut accum: HashMap<FactId, f32> = HashMap::new();
         for b in branches {
             let Some(cid) = b.candidate_id else { continue };
-            // Filtro di decoerenza: oltre la soglia il ramo cessa di esistere.
-            // Finding #6 della review: NaN-as-absence — un ramo con azione o
-            // ampiezza NaN è uno stato ignoto, trattato come decoerente.
-            // `NaN > x` è `false`, quindi senza questo guard esplicito il ramo
-            // NaN passerebbe il filtro e avvelenerebbe l'accumulatore
-            // (0.0 + NaN = NaN), rendendo il vincitore non-deterministico.
             if b.action > self.divergence_threshold || b.action.is_nan() || b.amplitude.is_nan() {
+                continue;
+            }
+            // Esclusione per bound (F6): se U_d < L_inc, il candidato non può
+            // vincere → escluso senza toccare il suo punteggio.
+            if bounds[&cid].upper < incumbent_lower {
                 continue;
             }
             // L'ampiezza del ramo è già stata calcolata alla creazione
@@ -930,5 +1029,67 @@ mod tests {
         // Il vincitore del collapse resta c1: il Pareto post-collapse è una
         // selezione successiva, non una mutilazione della funzione d'onda.
         assert_eq!(winner.candidate_id, Some(1));
+    }
+
+    /// **Regressione del pre-filtro F6** (review Alibaba, finding #6): il
+    /// pre-filtro per bound nel `collapse` deve escludere i candidati che non
+    /// possono vincere ($U_d < L_{inc}$) **senza alterare il vincitore**.
+    ///
+    /// Lo scenario (pesi 0.4/0.3/0.3, κ=2.0, soglia 0.5):
+    ///
+    /// - **c1 (incumbent)**: un solo ramo con azione ~0 → $S_{min}=0$,
+    ///   $U_1 = L_1 = \exp(0) = 1.0$. È l'incumbent (upper massimo).
+    /// - **c2 (escluso)**: un solo ramo con azione 0.5 (al limite della
+    ///   soglia, ancora valido) → $S_{min}=0.5$,
+    ///   $U_2 = \exp(-0.25) \approx 0.779 < L_1 = 1.0$ → escluso.
+    ///
+    /// Il test verifica due cose:
+    /// 1. Il vincitore del collapse col pre-filtro è **c1** (c2 non può
+    ///    vincere: $\Psi(2) = 0.779 < \Psi(1) = 1.0$).
+    /// 2. L'esito è **identico** all'accumulo pieno senza pre-filtro: il
+    ///    pre-filtro non tocca i punteggi dei superstiti, quindi il vincitore
+    ///    e la sua ampiezza accumulata non cambiano.
+    #[test]
+    fn collapse_prefiltro_bound_esclude_senza_alterare_vincitore() {
+        let resolver = resolver();
+        let b = builder();
+
+        // c1: un ramo a costo zero → incumbent con U = L = 1.0.
+        let r1 = b.build_branch(BranchType::Inertial, 1, 0.0, 0.0, 1.0, 2.0);
+        // c2: un ramo al limite della soglia (0.5, ancora valido) →
+        // U_2 = exp(-0.25) ≈ 0.779 < L_1 = 1.0 → escluso dal pre-filtro.
+        let r2 = b.build_branch(BranchType::Inertial, 2, 0.5, 0.0, 0.0, 2.0);
+
+        let branches = vec![r1.clone(), r2.clone()];
+
+        // Collapse col pre-filtro F6 attivo.
+        let winner = resolver.collapse(&branches).expect("deve collassare");
+        assert_eq!(winner.candidate_id, Some(1), "c1 vince (c2 escluso per bound)");
+        // L'ampiezza accumulata di c1 è quella del suo ramo (un solo ramo):
+        // Ψ(1) = exp(0) = 1.0. Il pre-filtro non l'ha alterata.
+        assert!((winner.amplitude - 1.0).abs() < 1e-4);
+
+        // Verifica che il bound di c2 sia davvero sotto il lower dell'incumbent:
+        // dimostra che l'esclusione è avvenuta per bound, non per caso.
+        let bound_c1 = Bound::from_valid_branches(1, 0.0, 2.0);
+        let bound_c2 = Bound::from_valid_branches(1, 0.5, 2.0);
+        assert!(bound_c2.cannot_beat(bound_c1.lower), "U_2 < L_1: c2 deve essere escluso");
+        assert!(!bound_c1.cannot_beat(bound_c1.lower), "l'incumbent non esclude sé stesso");
+
+        // Accumulo pieno senza pre-filtro (oracolo): stesso vincitore, stessa
+        // ampiezza. Il pre-filtro è trasparente rispetto all'esito.
+        let mut accum: HashMap<FactId, f32> = HashMap::new();
+        for b in &branches {
+            let cid = b.candidate_id.expect("candidato presente");
+            *accum.entry(cid).or_insert(0.0) += b.amplitude;
+        }
+        let winner_id = accum
+            .iter()
+            .max_by(|a, c| a.1.partial_cmp(c.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| *id)
+            .expect("candidato");
+        assert_eq!(winner_id, 1, "l'oracolo conferma c1 come vincitore");
+        assert!((accum[&1] - winner.amplitude).abs() < 1e-4,
+            "il pre-filtro non altera l'ampiezza accumulata del vincitore");
     }
 }
