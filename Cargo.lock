@@ -802,6 +802,7 @@ dependencies = [
  "proptest",
  "semantic-combiner",
  "semantic-gate",
+ "semantic-graph",
  "serde",
  "serde_json",
  "zip 2.4.2",

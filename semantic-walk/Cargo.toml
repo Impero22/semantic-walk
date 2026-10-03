@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 semantic-combiner = { path = "../semantic-combiner" }
 semantic-gate = { path = "../semantic-gate" }
+semantic-graph = { path = "../semantic-graph" }
 serde = { version = "1", features = ["derive"] }
 
 proptest = "1"

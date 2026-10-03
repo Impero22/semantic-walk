@@ -144,6 +144,19 @@ impl Graph {
             .is_ok()
     }
 
+    /// L'arco tra `a` e `b`, se esiste.
+    ///
+    /// Restituisce `None` se il legame non è presente nel grafo. La ricerca
+    /// è binaria: gli archi sono ordinati per coppia ordinata `(from, to)`
+    /// con `from < to`, quindi l'arco è memorizzato una sola volta.
+    pub fn edge_between(&self, a: NodeId, b: NodeId) -> Option<Edge> {
+        let (from, to) = if a <= b { (a, b) } else { (b, a) };
+        self.archi
+            .binary_search_by(|e| (e.from, e.to).cmp(&(from, to)))
+            .ok()
+            .map(|idx| self.archi[idx])
+    }
+
     /// I vicini di un nodo: tutti i nodi collegati ad esso da un arco.
     ///
     /// La ricerca è lineare sugli archi; il risultato non è ordinato.

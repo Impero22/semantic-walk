@@ -191,3 +191,5 @@ pub mod parse;
 pub mod frontier;
 
 pub mod solver;
+
+pub mod graph_adapter;
