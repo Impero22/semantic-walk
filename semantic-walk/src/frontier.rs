@@ -17,9 +17,12 @@
 //! scendere sotto l'incumbent" devo conoscere il minimo locale futuro.
 //!
 //! La soluzione concordata con Camillo (03/10) risolve la fragilità **nel
-//! disegno**: escludendo gli autoloop (`u ≠ v`), il minimo incremento
-//! inerziale sulle adiacenze reali del grafo è strettamente positivo per
-//! costruzione, e il bound stretto regge senza collassare nel banale.
+//! disegno**: escludendo gli autoloop (`u ≠ v`), l'incremento inerziale sulle
+//! adiacenze reali del grafo è strettamente positivo (`action > 0`). Il lower
+//! bound **esatto** non esiste in generale (le componenti cinematiche f32
+//! reali possono avvicinarsi a zero arbitrariamente): il `MIN_STEP` usato
+//! per la potatura è il minimo **empirico osservato**, misurato a runtime
+//! sugli archi reali — non una costante arbitraria né un valore "garantito".
 //!
 //! ## Il contratto del pre-filtro F6 (esatto)
 //!
@@ -40,9 +43,11 @@
 //! 1. **`u ≠ v` imposta, non assunta** — l'espansione genera solo figli
 //!    distinti dal padre; un assert verifica che ogni nodo generato abbia
 //!    stato ≠ stato del genitore.
-//! 2. **`ΔS_min` resta un lower bound** — estratto dall'insieme di adiacenza
-//!    completo usato dall'espansione; in debug, un assert verifica che ogni
-//!    arco traversato abbia costo ≥ ΔS_min.
+//! 2. **`ΔS_min` è il minimo empirico osservato** — non un lower bound
+//!    teorico "garantito" (le componenti cinematiche reali possono
+//!    avvicinarsi a zero arbitrariamente): è misurato a runtime sugli archi
+//!    reali del grafo, e in debug un assert verifica che ogni arco traversato
+//!    abbia costo ≥ ΔS_min.
 //! 3. **`PRUNE_EPSILON` esplicito** — nel confronto di potatura, più la
 //!    decisione semantica sulla parità: un cammino di ampiezza uguale
 //!    all'incumbent conta come vincitore.
@@ -72,7 +77,13 @@ pub struct FrontierNode {
     pub cum_cost: f32,
     /// Il numero di passi compiuti (profondità nel cammino).
     pub depth: usize,
-    /// Il costo minimo inerziale per passo garantito (ΔS_min per-livello).
+    /// Il costo minimo inerziale per passo (ΔS_min per-livello).
+    ///
+    /// Non è un lower bound teorico garantito da `u ≠ v`: le componenti
+    /// cinematiche f32 reali possono differire di quantità arbitrariamente
+    /// piccole anche tra stati distinti. È il minimo **empirico osservato**
+    /// sugli archi reali del grafo, misurato a runtime (lezione
+    /// SPARSE_EPSILON: il bound deve stare dove il fenomeno è, non sotto).
     pub min_step: f32,
     /// L'ampiezza corrente del nodo, `exp(−S_cum / κ)`.
     pub amplitude: f32,
@@ -119,8 +130,12 @@ impl FrontierNode {
     /// vincolo `u ≠ v` (stato del figlio distinto dal padre).
     ///
     /// Se `next.state == self.state`, restituisce `None`: il cammino non può
-    /// compiere wait-action né riattraversare uno stato identico. È il
-    /// vincolo che garantisce `ΔS_min > 0` per costruzione.
+    /// compiere wait-action né riattraversare uno stato identico. Il vincolo
+    /// `u ≠ v` garantisce `action > 0` (stati distinti → almeno una componente
+    /// diversa), ma **non** un valore positivo fissato: le componenti reali
+    /// possono produrre azioni arbitrariamente piccole. Il lower bound esatto
+    /// non esiste in generale — esiste il minimo empirico osservato, che va
+    /// misurato e non assunto.
     pub fn extend(
         &self,
         next_id: FactId,
@@ -232,6 +247,58 @@ impl Frontier {
     }
 }
 
+/// Metriche di profilazione per-livello dell'azione inerziale.
+///
+/// Strumento di **diagnostica** (non di potatura): misura la distribuzione
+/// dell'incremento inerziale `ΔS` sugli archi che la frontiera attraversa a
+/// un dato livello, senza esporre il pruning a decisioni locali non monotone.
+///
+/// Il bound di potatura resta ancorato al `MIN_STEP` globale (lower bound
+/// teorico garantito da `u ≠ v`); queste metriche servono a capire dove il
+/// grafo è stretto e dove degrada, non a decidere cosa escludere.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LevelDiagnostics {
+    /// Il numero di archi osservati in questo livello.
+    pub count: usize,
+    /// Il minimo incremento inerziale osservato.
+    pub min: f32,
+    /// Il massimo incremento inerziale osservato.
+    pub max: f32,
+    /// La media degli incrementi inerziali osservati.
+    pub mean: f32,
+}
+
+impl LevelDiagnostics {
+    /// Calcola le metriche da un iteratore di incrementi inerziali.
+    ///
+    /// Restituisce `None` se l'iteratore è vuoto (nessun arco attraversato).
+    pub fn from_actions(actions: impl IntoIterator<Item = f32>) -> Option<Self> {
+        let mut count = 0usize;
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        let mut sum = 0.0f32;
+        for a in actions {
+            count += 1;
+            if a < min {
+                min = a;
+            }
+            if a > max {
+                max = a;
+            }
+            sum += a;
+        }
+        if count == 0 {
+            return None;
+        }
+        Some(Self {
+            count,
+            min,
+            max,
+            mean: sum / count as f32,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,5 +377,21 @@ mod tests {
         let mut frontier = Frontier::new(2.0, 5, 0.5);
         frontier.prune();
         assert!(frontier.is_empty());
+    }
+
+    #[test]
+    fn diagnostica_calcola_min_max_media() {
+        // 3 archi: 0.5, 1.0, 1.5 → min 0.5, max 1.5, media 1.0
+        let d = LevelDiagnostics::from_actions([0.5, 1.0, 1.5]).expect("3 archi");
+        assert_eq!(d.count, 3);
+        assert!((d.min - 0.5).abs() < 1e-6);
+        assert!((d.max - 1.5).abs() < 1e-6);
+        assert!((d.mean - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn diagnostica_su_nessun_arco_restituisce_none() {
+        // Nessun arco attraversato → nessuna metrica.
+        assert!(LevelDiagnostics::from_actions(Vec::<f32>::new()).is_none());
     }
 }

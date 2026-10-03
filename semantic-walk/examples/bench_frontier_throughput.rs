@@ -42,7 +42,7 @@ use npyz::NpyFile;
 use serde::Deserialize;
 use zip::ZipArchive;
 
-use semantic_walk::frontier::{Frontier, FrontierNode, PRUNE_EPSILON};
+use semantic_walk::frontier::{Frontier, FrontierNode, LevelDiagnostics, PRUNE_EPSILON};
 use semantic_walk::KinematicState;
 
 // ---------------------------------------------------------------------------
@@ -69,9 +69,11 @@ const KAPPA: f32 = 2.0;
 const PROX_THRESHOLD: f32 = 0.7;
 
 /// Il minimo incremento inerziale per livello (bound per-livello).
-/// Deriva dall'osservazione che gli stati sono distinti per costruzione:
-/// un valore piccolo ma positivo garantisce `ΔS_min > 0`.
-const MIN_STEP: f32 = 0.01;
+/// Non è un lower bound teorico garantito da `u ≠ v` (le componenti
+/// cinematiche sono f32 reali e possono avvicinarsi a zero arbitrariamente):
+/// è il minimo **osservato** sugli archi reali del grafo, misurato a runtime
+/// da `measure_min_step`. Il bound deve stare dove il fenomeno è, non sotto.
+const MIN_STEP: f32 = 0.01; // ricalibrato a runtime dal minimo reale osservato
 
 // ---------------------------------------------------------------------------
 // Strutture dati
@@ -100,6 +102,28 @@ struct ProximityGraph {
 }
 
 impl ProximityGraph {
+    /// Misura il minimo incremento inerziale osservato su tutti gli archi
+    /// reali del grafo. Serve a calibrare `MIN_STEP` come lower bound
+    /// **empirico effettivo** sui dati, non come costante arbitraria.
+    fn measure_min_step(&self, alpha: f32, beta: f32, gamma: f32) -> f32 {
+        let mut min = f32::INFINITY;
+        for node in &self.nodes {
+            for &nb in &node.neighbors {
+                let a = node
+                    .state
+                    .inertial_action(&self.nodes[nb].state, alpha, beta, gamma);
+                if a > 0.0 && a < min {
+                    min = a;
+                }
+            }
+        }
+        if min.is_finite() {
+            min
+        } else {
+            1e-6
+        }
+    }
+
     /// Costruisce il grafo dai frame densi di tutte le coppie.
     fn from_trajectories(trajectories: &[Vec<Vec<f64>>]) -> Self {
         let mut nodes: Vec<GraphNode> = Vec::new();
@@ -248,24 +272,28 @@ fn read_dense(
 
 /// Esegue la ricerca a frontiera su un grafo a partire da una radice.
 ///
-/// Ritorna `(nodi_totali_generati, nodi_dopo_prune, risparmio)` per l'orizzonte.
+/// Ritorna `(nodi_totali_generati, nodi_dopo_prune, risparmio)` per l'orizzonte,
+/// più la diagnostica per-livello dell'azione inerziale (profilazione).
 fn frontier_search(
     graph: &ProximityGraph,
     root_idx: usize,
     horizon: usize,
-) -> (usize, usize, f64) {
-    let mut frontier = Frontier::new(KAPPA, horizon, MIN_STEP);
+    min_step: f32,
+) -> (usize, usize, f64, Vec<LevelDiagnostics>) {
+    let mut frontier = Frontier::new(KAPPA, horizon, min_step);
 
     // Radice: stato del nodo radice, costo 0, profondità 0.
     let root = FrontierNode::root(
         root_idx as u64,
         graph.nodes[root_idx].state,
-        MIN_STEP,
+        min_step,
     );
     frontier.push(root);
 
     let mut total_generated = 0usize;
     let mut depth = 0usize;
+    // Diagnostica per-livello: azioni inerziali degli archi attraversati.
+    let mut level_diag: Vec<LevelDiagnostics> = Vec::new();
 
     while depth < horizon {
         let level_size = frontier.len();
@@ -274,8 +302,9 @@ fn frontier_search(
         }
         total_generated += level_size;
 
-        // Espandi il livello corrente.
-        let mut next_level = Frontier::new(KAPPA, horizon, MIN_STEP);
+        // Espandi il livello corrente, raccogliendo le azioni inerziali.
+        let mut next_level = Frontier::new(KAPPA, horizon, min_step);
+        let mut actions: Vec<f32> = Vec::new();
         while let Some(node) = frontier.pop() {
             let nid = node.node_id as usize;
             for &nb in &graph.nodes[nid].neighbors {
@@ -285,13 +314,19 @@ fn frontier_search(
                     ALPHA,
                     BETA,
                     GAMMA,
-                    MIN_STEP,
+                    min_step,
                     KAPPA,
                 );
                 if let Some(child) = child {
+                    // L'azione inerziale di questo passo è la differenza di costo.
+                    actions.push(child.cum_cost - node.cum_cost);
                     next_level.push(child);
                 }
             }
+        }
+        // Registra la distribuzione dell'azione inerziale di questo livello.
+        if let Some(d) = LevelDiagnostics::from_actions(actions) {
+            level_diag.push(d);
         }
 
         // Potatura F6 esatta sul livello successivo.
@@ -314,7 +349,7 @@ fn frontier_search(
     } else {
         0.0
     };
-    (total_generated, after_prune_final, ratio)
+    (total_generated, after_prune_final, ratio, level_diag)
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +391,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_edges: usize = graph.nodes.iter().map(|n| n.neighbors.len()).sum();
     println!("[FRONTIER] Grafo: {} nodi, {} archi", n_nodes, n_edges);
 
+    // Calibra MIN_STEP come lower bound empirico: il minimo incremento
+    // inerziale osservato sugli archi reali. Il bound deve stare dove il
+    // fenomeno è, non sotto (lezione SPARSE_EPSILON).
+    let min_step = graph.measure_min_step(ALPHA, BETA, GAMMA);
+    println!(
+        "[FRONTIER] MIN_STEP ricalibrato: minimo ΔS_inerziale osservato = {:.6}",
+        min_step
+    );
+
     // Soglie di orizzonte da testare.
     let horizons = [1usize, 2, 3, 4, 5, 8];
 
@@ -372,10 +416,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &h in &horizons {
         let mut total_gen = 0usize;
         let mut total_after = 0usize;
+        // Aggrega la diagnostica per-livello su tutte le radici campionate.
+        let mut agg_min = f32::INFINITY;
+        let mut agg_max = f32::NEG_INFINITY;
+        let mut agg_sum = 0.0f32;
+        let mut agg_count = 0usize;
         for &r in &roots {
-            let (gen, after, _ratio) = frontier_search(&graph, r, h);
+            let (gen, after, _ratio, level_diag) = frontier_search(&graph, r, h, min_step);
             total_gen += gen;
             total_after += after;
+            for d in &level_diag {
+                agg_count += d.count;
+                agg_sum += d.mean * d.count as f32;
+                if d.min < agg_min {
+                    agg_min = d.min;
+                }
+                if d.max > agg_max {
+                    agg_max = d.max;
+                }
+            }
         }
         let saved = total_gen.saturating_sub(total_after);
         let ratio = if total_gen > 0 {
@@ -383,10 +442,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             0.0
         };
+        // Stampa la diagnostica aggregata (profilazione, non potatura).
+        let agg_mean = if agg_count > 0 {
+            agg_sum / agg_count as f32
+        } else {
+            0.0
+        };
         println!(
             "{:>4} | {:>12} {:>12} | {:>12} {:>9.2}%",
             h, total_gen, total_after, saved, ratio * 100.0
         );
+        // Profilazione: distribuzione dell'azione inerziale sugli archi reali.
+        if agg_count > 0 {
+            println!(
+                "     |  ΔS_inerziale: min={:.4} max={:.4} media={:.4} ({} archi)",
+                agg_min, agg_max, agg_mean, agg_count
+            );
+        }
     }
 
     println!("\n[FRONTIER] PRUNE_EPSILON = {}", PRUNE_EPSILON);
