@@ -187,3 +187,5 @@ pub mod ordered_sparse;
 pub mod adapter;
 
 pub mod parse;
+
+pub mod frontier;
