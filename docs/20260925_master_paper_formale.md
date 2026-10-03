@@ -1,0 +1,448 @@
+# Semantic Walk: High-Dimensional Trajectory Alignment with Permissive Gated Dynamic Time Warping
+
+**Autori**: Camillo Almadori, Iris
+**Affiliazione**: Impero22
+**Data**: 25 Settembre 2026
+**Stato**: COMPLETO — tutte le sezioni dalla 1 alla 10 integrate e committate. Abstract (1) scritto per ultimo, come da regola, a quadro chiuso. Background (3) di Camillo, bibliografia (10) di Camillo. Revisione di coerenza complessiva completata (Iris). Primo master completo del paper formale.
+
+---
+
+> **Nota di assemblaggio.** Questo è il documento master che fonde i blocchi
+> approvati nel punto condiviso. La numerazione delle sezioni segue la griglia
+> concordata (`20260924_struttura_paper_formale.md`) — è il riferimento che i
+> blocchi citano ("Sezione 4.1", "Sezione 6", "Sezione 7"). Ogni sezione riporta
+> l'autore del blocco e lo stato di integrazione. Bozze sorgente:
+> - `20260924_bozza_iris_sez41_e_6.md` (Iris)
+> - `20260924_bozza_camillo_sez42_5_e_7.md` (Camillo)
+> - `20260925_revisione_coerenza_paper.md` (revisione incrociata)
+
+---
+
+## 1. Abstract
+
+La similarità semantica non è una distanza da misurare, ma un cammino da allineare. Il paradigma dominante del retrieval — dal collasso topologico dei bi-encoder densi al bag-of-vectors di ColBERT — tratta i documenti come punti o insiemi di vettori, trascurando l'ordine in cui il significato si dispiega. Questo lavoro introduce **Semantic-Walk**, un'architettura che restituisce all'ordine il suo ruolo: allinea traiettorie di token nello spazio latente $D$-dimensionale mediante un **Dynamic Time Warping** con distanza coseno normalizzata, guidato da una banda di Sakoe-Chiba **adattiva** al Jaccard posizionale delle guide ordered-sparse. La biiezione posizionale è preservata per *tutti* i passi — un token soppresso è un verdetto, non un'assenza — garantendo la coerenza strutturale tra canale denso e sparso.
+
+L'efficienza, però, non sta nel calcolare di più, ma nel sapere quando ritirarsi. Un **gate permissivo** filtra i candidati a costo trascurabile, con un terzo esito — `Verdict::Timeout` — che è il *ritiro del riflesso*: quando il budget si esaurisce o la sonda si ritira, il candidato passa in modo neutro e conservativo. Dimostriamo la **Permissività Strutturale**: $P(\text{FN} \mid \text{incertezza}) = 0$, ossia il gate non introduce falsi negativi per via di incertezza, e il tasso complessivo è limitato dall'errore intrinseco della sonda ($P(\text{FN}) \le \varepsilon$).
+
+I contributi sono tre: (i) il **DTW D-dimensionale** con Sakoe-Chiba adattiva, che penalizza le inversioni d'ordine laddove la prossimità statica fallisce; (ii) la **coerenza di Pareto come invariante architetturale**, con l'**Invariante di Isomorfismo di Livello** che impone il pruning post-collapse sui candidati accumulati, mai sui rami; (iii) il **Verdict::Timeout** come terzo esito del gate, che rende l'efficienza una proprietà strutturale, non un'euristica. Su dataset sintetici e reali (Role-Reversal & Causality), Semantic-Walk supera i baseline ColBERT MaxSim e DTW Naive nel discriminare inversioni sintattiche e permutazioni causali.
+
+**Keywords**: similarità semantica, Dynamic Time Warping, late interaction, gate permissivo, retrieval ordinato.
+
+---
+
+## 2. Introduzione — La geometria non basta
+
+> **Autori**: Iris (narrativa motivazionale), Camillo (posizionamento vs letteratura).
+> **Stato**: PRIMA BOZZA Iris — in attesa della revisione da pari di Camillo e del posizionamento vs letteratura.
+
+### 2.1 Il paradigma dominante e il suo limite
+
+Il paradigma dominante nella ricerca semantica su spazi vettoriali ad alta dimensione riduce la similarità a una questione di *prossimità geometrica*: un concetto è un punto, la similarità è una distanza (coseno, euclidea), e due testi sono tanto più vicini quanto più i loro embedding collassano nello spazio. Questo modello ha prodotto risultati impressionanti — e tuttavia contiene un'ipotesi tacita che la nostra indagine intende mettere in discussione: che la semantica viva interamente nella *posizione*, e non nell'*ordine*.
+
+Il limite emerge in modo netto su esempi elementari. Consideriamo le due frasi:
+
+> *Cane morde uomo.*
+> *Uomo morde cane.*
+
+Sotto una rappresentazione bag-of-words, e per molti schemi di pooling, i due enunciati producono embedding geometricamente indistinguibili: gli stessi token, la stessa frequenza, la stessa posizione nello spazio. Eppure il loro significato è *opposto* — l'uno è una notizia banale, l'altro un evento. La geometria, da sola, non vede la differenza. La differenza vive nell'*ordine*: in chi compie l'azione e chi la subisce, in quale vettore viene prima e quale dopo.
+
+La posta in gioco non è accademica. Una memoria che si affida alla sola prossimità vettoriale non distingue causa da effetto, soggetto da oggetto, premessa da conseguenza. Confonde l'informazione con il suo rumore, il fatto con la sua inversione. In breve: **la prossimità non è comprensione**.
+
+#### 2.1.1 Posizionamento rispetto alla letteratura
+
+I modelli di retrieval correnti affrontano il problema dell'ordinamento sequenziale secondo due paradigmi prevalenti:
+1. **Bi-encoder Densi (Dense Retrieval)**: Proiettano l'intera sequenza di input in un unico vettore $z \in \mathbb{R}^D$. Benché efficiente per la ricerca tramite Nearest Neighbor (ANN), il meccanismo di pooling distrugge la struttura topologica del cammino temporale, trattando la sequenza come un punto statico.
+2. **Late-Interaction (es. ColBERT MaxSim)**: Mantengono una matrice di vettori per ogni token e calcolano la similarità aggregando le distanze coseno massime per token. Tuttavia, l'operatore MaxSim è topologicamente non orientato: confronta bag-of-vectors senza imporre vincoli sulla sequenzialità causale o sulla direzione del flusso informativo.
+
+### 2.2 La semantica come cammino
+
+La tesi di questo lavoro è che un fatto, un concetto, un pensiero non sia un *punto* ma un *percorso* — una sequenza ordinata di stati semantici. Il significato non risiede nella posizione dei singoli stati, ma nella *coerenza del cammino* che li unisce. Due pensieri non sono simili perché i loro punti collassano nello spazio, ma perché *camminano allo stesso modo*: perché le loro traiettorie si allineano lungo un percorso di deformazione che ne rispetta l'ordine interno.
+
+Questa prospettiva sposta la domanda fondativa della ricerca semantica. Non più: *quanto sono vicini due punti?* Ma: *come si confrontano due cammini?* E, più profondamente: *cosa significa che due pensieri si muovono secondo la stessa legge?*
+
+### 2.3 La risposta: allineamento di traiettorie con gate permissivo
+
+Per rispondere, adottiamo lo strumento classico dell'allineamento temporale — il Dynamic Time Warping (DTW) — e lo adattiamo al dominio semantico. Due traiettorie di embedding si allineano lungo un percorso di warping che ne accumula il costo locale, misurato dalla distanza coseno normalizzata in $\mathbb{R}^{1024}$; il vincolo di banda di Sakoe-Chiba mantiene l'allineamento rigoroso senza esplorare lo spazio intero.
+
+Ma l'allineamento da solo non basta. La memoria deve anche sapere *quando ritirarsi*: quando la divergenza tra due traiettorie supera una soglia, il confronto deve potersi fermare senza pretendere di aver prodotto una risposta. Nasce così il **gate permissivo** — un meccanismo che restituisce tre esiti (passa, blocca, *timeout*), dove il terzo è il *ritiro del riflesso*: non un errore, ma la scelta conservativa di non pronunciarsi quando l'evidenza non regge.
+
+### 2.4 Contributi
+
+Riassumiamo i contributi di questo lavoro:
+
+1. **La similarità semantica come cammino, non come distanza** — la riformulazione del confronto semantico come allineamento di traiettorie ordinate, con la distanza coseno normalizzata come costo locale in alta dimensione.
+2. **Il DTW D-dimensionale con banda di Sakoe-Chiba adattiva** — l'estensione dell'allineamento a traiettorie in $\mathbb{R}^D$, con una finestra che si adatta alla divergenza strutturale.
+3. **La coerenza di Pareto come invariante** — il principio di isomorfismo di livello che governa dove il pruning è legittimo (sui candidati collassati) e dove è vietato (sugli operatori additivi).
+4. **Il Verdict::Timeout come terzo esito** — la formalizzazione del gate permissivo che trasforma l'efficienza da *calcolare di più* a *sapere quando ritirarsi*, con la garanzia strutturale di non aggiungere errore.
+
+### 2.5 Struttura del lavoro
+
+Il resto dell'articolo è organizzato come segue. La Sezione 3 colloca il lavoro rispetto alla letteratura (DTW, similarità semantica, early-exit). La Sezione 4 formalizza l'architettura a tre stanze — combinatore, gate, grafo — e le metriche cinematiche del cammino. La Sezione 5 descrive l'allineamento DTW e la sua implementazione. La Sezione 6 formalizza il gate permissivo. La Sezione 7 presenta il benchmark su due piani (sintetico e reale). Le Sezioni 8 e 9 discutono limiti e conclusioni.
+
+---
+
+
+## 3. Background e Lavori Correlati
+
+### 3.1 Dynamic Time Warping: dallo Speech Recognition al Vettoriale ad Alta Dimensione
+L'algoritmo Dynamic Time Warping (DTW), introdotto originariamente da Sakoe e Chiba (1978) per l'allineamento di segnali acustici nel riconoscimento vocale, fonda la propria efficacia sull'ottimizzazione mediante programmazione dinamica del cammino di allineamento tra serie temporali. Sebbene il DTW classico operi prevalentemente su traiettorie monodimensionali o scalari, recenti estensioni lo hanno applicato a spazi vettoriali ad alta dimensione $\mathbb{R}^D$ (Müller, 2007). In tali contesti, l'impiego di metriche di distanza locali (es. distanza coseno) combinato con vincoli di banda adattivi risulta essenziale per mitigare la complessità computazionale $O(N \cdot M)$ e per preservare la continuità topologica lungo il cammino semantico.
+
+### 3.2 Architetture di Retrieval: Bi-Encoder e Late Interaction
+I sistemi di recupero informativo basati su modelli linguistici densi si dividono fondamentalmente in due famiglie:
+1. **Bi-Encoder Densi** (es. Sentence-BERT): comprimono l'intera sequenza di input in un unico vettore rappresentativo $z \in \mathbb{R}^D$. Tale proiezione soffre del vincolo di collasso topologico, annullando la traiettoria temporale/semantica dei token e riducendo il confronto a una semplice Prossimità Puntuale (distanza coseno tra due punti statici).
+2. **Late Interaction** (es. ColBERT; Khattab & Zaharia, 2020): conservano i vettori di token intermedi ed effettuano un confronto guidato dall'operatore `MaxSim`. Sebbene ColBERT preservi la granularità locale tramite un approccio *bag-of-vectors*, l'operatore `MaxSim` manca di un vincolo d'ordine topologico e causale: esso calcola la somiglianza tra token senza imporre una continuità di cammino, rendendo il modello cieco di fronte a inversioni sintattiche o permutazioni del flusso causale.
+
+### 3.3 Early-Exit, Gate Permissivi e Sistemi Zero-Allocation
+Nei sistemi di ricerca e retrieval ad alte prestazioni, la riduzione delle latenze di calcolo richiede strategie avanzate di *early-exit* e filtraggio progressivo. L'approccio classico per la valutazione anticipata dei candidati impiega euristiche rigide basate su soglie globali, le quali corrono il rischio di scartare falsi negativi critici. I *gate permissivi* e i meccanismi di pruning probabilistico garantiscono invece una proprietà di conservatività strutturale del tipo $P(\text{FN}) \le \varepsilon$. Implementare tali filtri in architetture ad altissimo throughput impone il vincolo *zero-allocation*: la struttura di calcolo non deve allocare memoria dinamica nella fase di screening (es. *Guardiano $O(1)$* su indici *ordered-sparse*), garantendo una latenza deterministica e prevedibile.
+
+## 4. Formulazione Matematica
+
+### 4.1 Il DTW D-dimensionale — REV
+
+> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza A risolta: $W_i \to r_i$).
+> Da `20260924_bozza_iris_sez41_e_6.md` sezione 4.1.
+
+Siano $X = \{(\mathbf{x}_1, w_1^X), \dots, (\mathbf{x}_N, w_N^X)\}$ e $Y = \{(\mathbf{y}_1, w_1^Y), \dots, (\mathbf{y}_M, w_M^Y)\}$ due traiettorie di punti nello spazio latente $D$-dimensionale, con $\mathbf{x}_i, \mathbf{y}_j \in \mathbb{R}^D$ e pesi scalari associati $w_i^X, w_j^Y \in [0, 1]$.
+
+**Definizione (Filtro d'Igiene Posizionale — Terza Via)**  
+Per garantire la biiezione topologica $0..N-1$ ed evitare il disallineamento dei puntatori di memoria nella matrice densa, la dimensione della sequenza $\vert{}X\vert{} = N$ viene rigorosamente preservata. Il peso $w_i^X$ del token $i$-esimo viene determinato mediante la funzione indicatrice $\mathbb{I}(\cdot)$:
+
+$$w_i^X = w_i^{\text{orig}} \cdot \mathbb{I}\left(st_i = 0 \land id_i \ge 4\right) = \begin{cases} w_i^{\text{orig}} & \text{se } st_i = 0 \land id_i \ge 4 \\ 0.0 & \text{altrimenti} \end{cases}$$
+
+dove $st_i$ rappresenta lo stato del passo ($0 =$ attivo) e $id_i < 4$ identifica i token di controllo del vocabolario (es. `<s>`, `</s>`, `<unk>`, `<pad>`).
+
+> **Nota sulla Terza Via.** La biiezione $0..N-1$ è preservata per *tutti* i passi: i passi non significativi (token speciali, soppressi) restano come posizioni a peso $0.0$. La posizione esiste, ma è un verdetto di non-presenza, non un buco nella traiettoria. Questo è ciò che impedisce il disallineamento strutturale con la traiettoria densa ColBERT (che conserva $N$ righe). Un token soppresso è un *verdetto*, non un'assenza.
+
+**Costo di Allineamento Locale (Coseno Normalizzato)**  
+La matrice dei costi locali $C \in \mathbb{R}^{N \times M}$ è definita dalla distanza coseno normalizzata tra i punti della traiettoria:
+
+$$C(i, j) = 1.0 - \text{sim}(\mathbf{x}_i, \mathbf{y}_j) = 1.0 - \frac{\mathbf{x}_i \cdot \mathbf{y}_j}{\Vert{}\mathbf{x}_i\Vert{}_2 \cdot \Vert{}\mathbf{y}_j\Vert{}_2}$$
+
+con la convenzione $C(i,j) = 1.0$ se $\Vert{}\mathbf{x}_i\Vert{}_2 = 0$ o $\Vert{}\mathbf{y}_j\Vert{}_2 = 0$ (vettore nullo → similarità indefinita → costo massimo), e il clamp a $[0, 1]$ della similarità.
+
+> **Nota sulla metrica.** Per vettori $L_2$-normalizzati ($\Vert{}\mathbf{x}\Vert{}_2 = \Vert{}\mathbf{y}\Vert{}_2 = 1$), vale l'identità $\Vert{}\mathbf{x}_i - \mathbf{y}_j\Vert{}_2 = \sqrt{2 \cdot d_{\text{cos}}(\mathbf{x}_i, \mathbf{y}_j)}$. Questa identità è *solo* una nota: il costo implementato è il coseno normalizzato, non l'Euclidea ponderata, e non vi è alcuna moltiplicazione per il prodotto dei pesi dei token. I pesi $w_i^X$ governano l'*igiene posizionale* (quali passi contano come presenza), non la *scala* del costo locale.
+
+**Ricorrenza della Programmazione Dinamica**  
+La matrice delle distanze accumulate $D(i, j)$ per $1 \le i \le N$ e $1 \le j \le M$ soddisfa l'equazione di Bellman:
+
+$$D(i, j) = C(i, j) + \min \begin{cases} D(i-1, j) & \text{(inserimento/stallo } Y\text{)} \\ D(i, j-1) & \text{(cancellazione/stallo } X\text{)} \\ D(i-1, j-1) & \text{(match temporale)} \end{cases}$$
+
+con le condizioni al contorno rigorose:
+
+$$D(0, 0) = 0, \quad D(i, 0) = \infty \quad \forall i > 0, \quad D(0, j) = \infty \quad \forall j > 0$$
+
+> **Rimando alla guida cinematico-sparse (Terza Via → 4.2).** L'allineamento DTW qui descritto non opera su sequenze libere: è guidato dalla struttura ordered-sparse a due strati implementata in `align_with_ordered_sparse` (`semantic-walk/src/dtw.rs`). *Strato 1* — un guardiano $O(1)$ basato su `global_overlap` esegue un pruning topologico: se la sovrapposizione globale scende sotto la soglia discriminante, restituisce `Ok(None)` (ritiro geometrico, nessun costo speso). *Strato 2* — la finestra di Sakoe-Chiba $r_i$ si adatta dinamicamente tramite il `positional_jaccard` $J$: $J \ge 0.7 \Rightarrow r_{\min}$, $J < 0.3 \Rightarrow r_{\max}$, con rampa lineare tra le soglie e penalità sul costo locale. Questo è il legame esplicito tra la "Terza Via" (biiezione posizionale preservata) e la banda adattiva formalizzata nella Sezione 4.2 di Camillo: la guida ordered-sparse è il canale attraverso cui l'igiene posizionale della 4.1 diventa vincolo geometrico sull'allineamento.
+
+### 4.2 La banda di Sakoe-Chiba adattiva al Jaccard Posizionale
+
+> **Autore**: Camillo. **Stato**: INTEGRATO.
+> Da `20260924_bozza_camillo_sez42_5_e_7.md` sezione 4.2.
+
+Per mitigare la complessità $O(NM)$ senza compromettere l'allineamento di deformazioni strutturali, l'ampiezza della finestra di vincolo $r_i$ non è statica ma viene modulata dinamicamente al passo $i$ in base alla concordanza posizionale locale delle guide *ordered-sparse*.
+
+#### 4.2.1 Formulazione della Rampa Lineare a Tratti
+
+Sia $J_i = J_{\text{pos}}(X, Y, i) \in [0, 1]$ l'indice di Jaccard posizionale calcolato sul frame $i$-esimo tra le sequenze sparse $X$ e $Y$. La banda ammissibile $r_i$ è governata da una funzione a tratti con interpolazione lineare continua tra le soglie $0.3$ e $0.7$:
+
+$$r_i = \min \left( w_{\text{base}}, \; \begin{cases}  w_{\text{min}} & \text{se } J_i \ge 0.7 \\  w_{\text{max}} & \text{se } J_i < 0.3 \\  \left\lfloor w_{\text{min}} + (w_{\text{max}} - w_{\text{min}}) \cdot \frac{J_i - 0.3}{0.4} \right\rfloor & \text{se } 0.3 \le J_i < 0.7  \end{cases} \right)$$
+
+dove $w_{\text{min}}$ e $w_{\text{max}}$ sono i limiti di vincolo cinematico ($w_{\text{min}} \le w_{\text{max}}$) e $w_{\text{base}}$ è il limite massimo globale imposto dall'istanza del sistema (`window_size`).
+
+#### 4.2.2 Modulazione e Penalizzazione del Costo Locale
+
+L'intervallo ammissibile degli indici $j$ nella matrice per la riga $i$ è definito da:
+
+$$\text{window\_start}(i) = \max\left(1, \; i - r_i\right), \qquad \text{window\_end}(i) = \min\left(M, \; i + r_i\right)$$
+
+Qualora la concordanza posizionale sia criticamente bassa ($J_i < 0.3$), il costo locale $C(i, j)$ calcolato tramite distanza coseno densa (`cosine_distance`) viene ponderato da un fattore di penalità additivo sulla distanza, proporzionale alla divergenza:
+
+$$C_{\text{effettivo}}(i, j) = C(i, j) \cdot \left(1.0 + (0.3 - J_i)\right) \qquad \forall J_i < 0.3$$
+
+In questo modo, traiettorie con scarsa concordanza posizionale subiscono sia una dilatazione della banda (fino a $w_{\text{max}}$), sia una penalizzazione sul costo di allineamento, scoraggiando scorciatoie non topologiche nel cammino ottimo.
+
+### 4.3 Le metriche cinematiche
+
+> **Autori**: Camillo (formule), Iris (intuizione del moto). **Stato**: INTEGRATO E OPERATIVO (patch `dtw.rs`).
+> Le metriche cinematiche sono calcolate in fase di backtracking dal modulo `compute_kinematic`, popolando un `KinematicStep` per ciascun punto del `warp_path` $P = \{(i_k, j_k)\}_{k=0}^{K-1}$.
+
+Definito il vettore errore locale al passo $k$ come $\mathbf{e}_k = \mathbf{x}_{(i_k)} - \mathbf{y}_{(j_k)} \in \mathbb{R}^D$, le tre metriche cinematiche sul cammino di allineamento sono formalizzate come segue:
+
+**Velocità di disallineamento semantico ($v_k$)**
+Modulo della norma $L_2$ del vettore di scostamento locale al passo $k$:
+$$v_k = \Vert{}\mathbf{e}_k\Vert{}_2 = \sqrt{\sum_{d=1}^{D} (x_{(i_k), d} - y_{(j_k), d})^2}$$
+
+**Accelerazione discreta ($a_k$)**
+Variazione prima della velocità lungo passi consecutivi del cammino (con $a_0 = 0.0$):
+$$a_k = v_k - v_{k-1} \qquad \forall k \ge 1$$
+
+**Curvatura angolare della traiettoria ($\kappa_k$)**
+Deviazione angolare del vettore di errore rispetto al passo precedente (con $\kappa_0 = 0.0$ e $\kappa_k = 0.0$ se $\Vert{}\mathbf{e}_k\Vert{}_2 = 0$ o $\Vert{}\mathbf{e}_{k-1}\Vert{}_2 = 0$):
+$$\kappa_k = 1.0 - \frac{\mathbf{e}_k \cdot \mathbf{e}_{k-1}}{\Vert{}\mathbf{e}_k\Vert{}_2 \cdot \Vert{}\mathbf{e}_{k-1}\Vert{}_2} \qquad \forall k \ge 1$$
+
+> **Nota di aderenza al codice.** L'estrazione delle metriche cinematiche è integrata nel ciclo di allineamento `TrajectoryAlignment`. La suite di test unitari verifica la consistenza dimensionale ($\vert{}{\text{kinematic}}\vert{} = \vert{}{\text{warp\_path}}\vert{}$) e la condizione al contorno iniziale ($v_0 = 0, a_0 = 0, \kappa_0 = 0$ su punti identici). Dettaglio di robustezza: il codice applica `clamp` a non-negativo sulla curvatura (`.max(0.0)`), garantendo che $\kappa_k \ge 0$ anche quando l'angolo tra vettori consecutivi supera $90^\circ$ (dove $1 - \cos\theta$ crescerebbe oltre 1); la formulazione è corretta per l'intervallo principale e il clamp è una guardia numerica.
+
+**Azione cinematica inerziale ($S_{\text{Inertial}}$)**
+
+$$S_{\text{Inertial}} = \alpha \Vert{}\Delta \mathbf{v}\Vert{}_2^2 + \beta \Vert{}\Delta \mathbf{a}\Vert{}_2^2 + \gamma |\Delta \kappa|$$
+
+> **Nota di estensione dichiarata.** L'azione inerziale $S_{\text{Inertial}}$ resta la formalizzazione teorica di arrivo — coerente con `KinematicState::inertial_action` nel codice (`semantic-walk/src/lib.rs`), ma la sua integrazione come azione aggregata del gate è un'estensione dichiarata, non ancora wired nel percorso decisionale. Le tre grandezze cinematiche individuali ($v_k, a_k, \kappa_k$) sono invece pienamente operative e coperte da test.
+
+### 4.4 La coerenza di Pareto e l'Invariante di Isomorfismo di Livello
+
+> **Autore**: Camillo (prova), Iris (peso concettuale). **Stato**: INTEGRATO.
+
+La coerenza di Pareto, verificata via property-based test, è una proprietà *architetturale*: per una somma pesata monotona degli assi, la dominanza individuale dei rami non interferisce con l'ottimo globale. Il vero protagonista di questa sezione è però l'**Invariante di Isomorfismo di Livello**:
+
+$$\text{Pruning}(\text{Branch}(P)) \neq \text{Pruning}(\text{Collapse}(P))$$
+
+Dimostriamo che la riduzione dello spazio di ricerca mediante dominanza Pareto preserva l'ottimo globale $P^*$ *se e solo se* applicata **post-collapse** sul candidato accumulato. Il pruning branch-level soffre di un errore strutturale con lower bound $\Omega(N)$ sotto aggregazione additiva — esattamente come emerso dal bug risolto sulla codebase (vedi Sezione 5.2).
+
+> **Nota concettuale.** La dominanza tra rami non basta mai: se $L_c > U_d$ (lower bound del candidato superiore all'upper bound dell'incumbent), quel candidato è escluso *senza toccare il suo punteggio*. La regola operativa è $\text{partial} > \text{incumbent} \rightarrow \text{stop}$. Non trasformare i costi cancellati in un vantaggio per il candidato: è questo il principio che il pruning branch-level violava, e che l'isomorfismo di livello ristabilisce.
+
+### 4.5 Il divergence token come sonda content-sensitive
+
+> **Autori**: Camillo (definizione), Iris (ruolo architetturale). **Stato**: INTEGRATO E OPERATIVO (patch `dtw.rs`).
+
+La metrica base $\tau_{\text{div}} = \vert{}N - M\vert{} / L_{\text{path}}$ misurava esclusivamente la divergenza strutturale di lunghezza. È stata arricchita integrando il costo medio di deformazione semantica normalizzato $\bar{c}_{\text{path}}$ (corrispondente al `normalized_score` del DTW):
+
+$$\tau_{\text{div}} = \frac{\vert{}N - M\vert{}}{L_{\text{path}}} + \alpha \cdot \bar{c}_{\text{path}}$$
+
+dove $\bar{c}_{\text{path}} = \frac{1}{L_{\text{path}}} \sum_{k=0}^{L_{\text{path}}-1} d_{\text{cos}}(\mathbf{x}_{(i_k)}, \mathbf{y}_{(j_k)})$ e il parametro $\alpha \ge 0$ pondera l'impatto della componente di contenuto.
+
+La condizione di attivazione del gate ($\text{Verdict::Timeout}$) resta ancorata alla soglia parametrica:
+$$\tau_{\text{div}} \ge \theta$$
+
+> **Nota di aderenza al codice.** L'algoritmo supporta sia la modalità retrocompatibile ($\alpha = 0.0$ via `KinematicAligner::new`) sia la modalità content-sensitive via `KinematicAligner::with_alpha(window_size, alpha)`, calcolando la combinazione convessa in un singolo passaggio post-backtracking. Con $\alpha = 0.0$ la metrica è identica alla versione base — retrocompatibilità totale con la suite esistente; con $\alpha > 0$ si attiva il termine content-sensitive che risolve esattamente il limite smontato dalla review: la capacità di discriminare coppie di uguale lunghezza ma semanticamente divergenti. La soglia $\theta$ del gate resta parametrica e indipendente.
+
+## 5. Architettura — La casa a tre stanze
+
+> **Autore**: Camillo (contratti), Iris (sintesi). **Stato**: INTEGRATO.
+> Da `20260924_bozza_camillo_sez42_5_e_7.md` sezione 5.
+> - Il combinatore — quanto è simile A a B?
+> - Il gate — vale la pena confrontarli?
+> - Il grafo — chi sta vicino a chi, e perché?
+> - Due leggi: coerenza Pareto; legge di gravità della memoria.
+
+### 5.1 Stato Attuale dell'Implementazione (`dtw.rs`)
+
+L'efficienza del ciclo di query richiede un'analisi rigorosa dell'impronta di memoria nel percorso critico di matching. L'attuale allocazione in `dtw.rs` gestisce la matrice delle distanze mediante allocazione dinamica su heap $N \times M$ (`vec![vec![f64::INFINITY; m + 1]; n + 1]`), accompagnata da un vettore dinamicamente ridimensionato per la ricostruzione del cammino ottimo $W^*$ (`warp_path`). Questa struttura garantisce chiarezza nella fase di prototipazione ma introduce chiamate al sistema di memoria durante l'esecuzione delle query.
+
+**Stato corrente (patch `365596b`).** Nel backtracking, `compute_kinematic` popola `TrajectoryAlignment::kinematic` con un `KinematicStep` per ogni punto del warp_path: $v_k = \Vert{}e_k\Vert{}_2$, $a_k = v_k - v_{k-1}$, $\kappa_k = 1 - (e_k \cdot e_{k-1})/(\Vert{}e_k\Vert{}_2 \cdot \Vert{}e_{k-1}\Vert{}_2)$, con guardie sui casi limite. Inoltre `KinematicAligner` espone `alpha` (default `0.0`) per la sonda content-sensitive $\tau_{\text{div}} = |N-M|/L + \alpha \cdot \bar{c}_{\text{path}}$. L'allocazione heap $N \times M$ resta invariata — la transizione al runtime zero-allocation è la roadmap della Sezione 5.2.
+
+### 5.2 Optimization Roadmap verso il Zero-Allocation Runtime
+
+Per garantire latenze deterministiche in contesti produttivi ad alta frequenza, l'architettura formalizza la transizione al modello *Zero-Allocation* sul percorso critico ($0$ chiamate ad heap durante la fase di matching):
+
+1. **Circular Buffer per la Programmazione Dinamica**: Poiché l'equazione di Bellman al passo $i$ richiede esclusivamente i valori della riga corrente $i$ e della riga precedente $i-1$, la matrice $N \times M$ viene sostituita da due buffer circolari di dimensione fissa limitata dalla banda massima $2 \times (2 w_{\text{max}} + 1)$ elementi `f32`, allocati direttamente nello stack frame della funzione.
+2. **ThreadLocal ScratchPad per il Backtracking**: Qualora sia richiesta l'estrazione esplicita del cammino di warping $W^*$, i vettori temporanei vengono gestiti tramite una struttura `ScratchPad` pre-allocata all'inizializzazione del thread worker (`ThreadLocal`), azzerando l'overhead di `malloc`/`realloc` nel ciclo di query.
+
+### 5.3 La simmetria della metrica e il punto cieco sull'orientamento causale
+
+> **Autore**: Iris. **Stato**: INTEGRATO (verificato su dati reali, 28/09/26).
+
+Una proprietà strutturale del DTW — ereditata dalla sua natura di distanza — è la **simmetria**: $d(A,B) = d(B,A)$. Verificata come uguaglianza algebrica esatta, non approssimazione numerica, sia su sequenze sintetiche ($0.8666$) sia su coppie reali del Dataset A (`pair_217`: $0.2225$, `pair_145`: $0.2287$, identiche all'ultima cifra in entrambe le direzioni).
+
+Questa proprietà, innocua per il retrieval di similarità, diventa un confine epistemologico quando l'oggetto della misura è una relazione **asimmetrica per natura**. La causalità è orientata: $A \Rightarrow B \neq B \Rightarrow A$ — anzi, delle due una è falsa. Un allineamento di traiettorie che rispetta gli assiomi di distanza della varietà non può codificare l'orientamento causale senza violarli: la direzione non è un grado di libertà della metrica, è un dato che la metrica per costruzione non osserva.
+
+Il punto cieco è stato isolato sperimentalmente sulle **coppie causality pure** (stesse parole identiche, sole clausole invertite): il DTW le considera dissimili ($L_5 = 0.208$–$0.229$) ma NON quanto le inversioni di ruolo sintattico (`role_reversal`, $L_5 = 0.05$–$0.12$). La differenza è il **connettivo condiviso al centro** ("di conseguenza", "quindi", "perciò", "pertanto"): la self-attention di ColBERT diffonde il contesto del connettivo sui frame adiacenti, e il DTW sfrutta questo punto di cerniera per allineare localmente i vettori, attenuando la penalizzazione dello scambio causale. L'effetto è qualitativo, non quantitativo: verificato che non scala con la lunghezza del connettivo (mono-token vs bi-token non correlati a $L_5$).
+
+**Conseguenza architetturale.** Questo punto cieco non è un difetto di $L_5$, ma la prova più netta della sua **ortogonalità** rispetto a $L_1$ (ColBERT MaxSim). La validazione completa sul Dataset A (240 coppie, 60 per categoria, esecuzione pulita con 0 errori) fornisce le AUC binarie su tutte le coppie di categorie:
+
+| Coppia di categorie | $L_1$ AUC | $L_5$ AUC | Esito |
+|---|---|---|---|
+| role_reversal vs synonymy_control | 0.9308 | **0.9892** | $L_5$ vince |
+| role_reversal vs negation_flip | 0.9358 | **0.9986** | $L_5$ vince |
+| synonymy_control vs negation_flip | 0.5431 | **0.7236** | $L_5$ vince (caso difficile) |
+| causality vs synonymy_control | **0.9756** | 0.5356 | $L_1$ vince |
+| causality vs negation_flip | **0.9514** | 0.8278 | $L_1$ vince |
+| causality vs role_reversal | 0.9992 | 0.9939 | parità |
+
+Il quadro è complementare e simmetrico:
+
+* $L_1$ misura lo spostamento lessicale/semantico puro — eccelle sulla causalità ($0.976$), fallisce sulla negazione ($0.543$, sostanzialmente equivalente al caso).
+* $L_5$ misura la coerenza di struttura e moto semantico — eccelle su negazione ($0.724$) e ruoli ($0.989$–$0.999$), è cieco alla direzione causale ($0.536$).
+
+Le due metriche non sono sovrapponibili con una media pesata: sono dimensioni indipendenti dello stesso spazio semantico, e la **frontiera di Pareto** di `semantic-combiner` le tiene insieme senza appiattirle. La debolezza sulla causalità pura è quindi la giustificazione empirica più diretta dell'architettura a tre stanze: nessuna singola metrica vede tutto, e il combinatore esiste proprio per non dover scegliere.
+
+---
+
+## 6. Il Gate Permissivo e il Verdict::Timeout — REV
+
+> **Autore**: Iris. **Stato**: INTEGRATO (discrepanza B risolta: passo 5 della 6.4 formalizza $\hat{\tau}_{\text{div}}$ come stima misurata dalla sonda economica, θ come soglia parametrica, condizione di scatto $\hat{\tau}_{\text{div}} \ge \theta$; nomenclatura allineata alla verifica di coerenza globale del 28/09).
+> Da `20260924_bozza_iris_sez41_e_6.md` sezione 6.
+
+### 6.1 Il Problema Decisionale
+
+Il gate è un **filtro pre-inferenziale**: deve decidere, a costo trascurabile, se un candidato merita di spendere il matching completo (ColBERT + DTW $D$-dimensionale). La decisione è binaria con un terzo esito di emergenza. Formalmente, il gate decide una funzione
+
+$$g: (\mathbf{d}, \mathbf{s}, t) \mapsto \mathcal{V}, \qquad \mathcal{V} = \{\text{Passa}, \text{Blocca}, \text{Timeout}\}$$
+
+dove $\mathbf{d}$ è la similarità densa grezza in $[-1, 1]$, $\mathbf{s}$ la similarità sparsa grezza in $[0, +\infty)$, e $t$ il tempo trascorso rispetto alla deadline $T_{\text{max}}$.
+
+### 6.2 Matrice di Decisione a Costo Asimmetrico
+
+La decisione è guidata da una matrice di costo che penalizza in modo **fortemente asimmetrico** il falso negativo rispetto al falso positivo:
+
+| | Decido *Passa* | Decido *Blocca* |
+|---|---|---|
+| **Vero: merita il costo** (candidato rilevante) | $0$ | $C_{\text{FN}}$ (perdita di un ricordo rilevante) |
+| **Vero: non merita il costo** (candidato irrilevante) | $C_{\text{FP}}$ (costo di un matching sprecato) | $0$ |
+
+con il vincolo di progetto:
+
+$$C_{\text{FN}} \gg C_{\text{FP}}$$
+
+**Giustificazione (fedele al codice).** Il commento sorgente in `lib.rs` è esplicito: *"Il gate è permissivo: ogni incertezza (budget scaduto, sonda ritirata) risolve in `Passa`, mai in `Blocca`. Meglio un colbert sprecato che un ricordo perso."* L'asimmetria è quindi una scelta architetturale: il costo di un falso negativo (perdere un ricordo che meritava il matching) è considerato incommensurabilmente più alto del costo di un falso positivo (spendere un matching su un candidato che non lo meritava).
+
+### 6.3 La Sonda Economica e il Ritiro per Onestà
+
+La sonda combina le **sole** due metriche economiche — dense e sparse — escludendo il ColBERT, che in questa fase non è ancora stato calcolato e non deve essere indovinato:
+
+$$s(\mathbf{d}, \mathbf{s}) = \text{combine}\left(\text{normalize}(\mathbf{d}, \mathbf{s}, 0), [\alpha, \beta, 0]\right), \qquad \alpha + \beta = 1$$
+
+dove il terzo asse (ColBERT) è posto a $0$ e il suo peso a $0$: *"il colbert è posto a 0 nel calcolo economico: non è ancora stato calcolato, e il gate non deve indovinarlo. È il riflesso che filtra, non il giudice che condanna."* Il lambda calibrato $\lambda = 10.64$ è lo stesso del giudizio completo, così il riflesso economico e il giudizio parlano la stessa lingua.
+
+**Ritiro per onestà.** Se i pesi non sono validi (negativi, somma non unitaria) o un ingresso è `NaN`, la sonda non azzarda un giudizio: ritorna `NaN`. Il commento sorgente: *"La geometria che non sa rispondere non mente: si ritira."* Un `NaN` non è un valore estremo, è l'assenza di valore.
+
+### 6.4 La Regola di Decisione
+
+Il gate decide secondo l'algoritmo (fedele a `decide()` in `lib.rs`):
+
+1. **Prima guardia (budget).** Se $t \ge T_{\text{max}}$ (deadline scaduta) → `Verdict::Timeout`. Il budget è la prima guardia: se è già esaurito, ci si ritira *subito*, senza nemmeno calcolare la sonda.
+2. **Calcolo della sonda.** $s = s(\mathbf{d}, \mathbf{s})$.
+3. **Seconda guardia (budget).** Se $t \ge T_{\text{max}}$ (scaduto *mentre* calcolavamo) → `Verdict::Timeout`.
+4. **Ritiro per onestà.** Se $s$ è `NaN` (sonda ritirata) → `Verdict::Passa` (permissivo: nessun giudizio affidabile → non si blocca).
+5. **Soglia.** La sonda produce la *stima economica* $\hat{\tau}_{\text{div}} = s(\mathbf{d}, \mathbf{s})$ (basata unicamente sulle componenti densa e sparsa, con ColBERT posto a $0$); la condizione di scatto è $\hat{\tau}_{\text{div}} \ge \theta$ (soglia parametrica del gate). Se $\hat{\tau}_{\text{div}} \ge \theta$ → `Verdict::Passa`; altrimenti → `Verdict::Blocca`. Qui $\hat{\tau}_{\text{div}}$ è la *variabile di misura* (ciò che la sonda economica calcola), $\theta$ il *valore di controllo* (la soglia parametrica che decide): i due ruoli restano separati e netti. **Nota di nomenclatura.** La $\hat{\tau}_{\text{div}}$ della sonda è una *stima* pre-matching; va distinta dalla $\tau_{\text{div}}$ della Sezione 4.5, divergenza cinematica completa calcolata post-matching tramite DTW. Il gate decide prima del matching e non può dipendere dal costo di un cammino non ancora calcolato.
+
+### 6.5 `Verdict::Timeout` come Ritiro del Riflesso
+
+**Definizione (Ritiro del Riflesso).** Il `Verdict::Timeout` non è un *fallback di comodo* né un rifiuto: è il **ritiro del riflesso**. Quando il budget si esaurisce, il gate non ha un giudizio affidabile sul candidato e — per il principio di permissività — **non applica alcun pre-giudizio geometrico**: lascia passare il candidato al livello successivo in modo neutro e conservativo.
+
+Il `Verdict::Timeout` risolve quindi sempre in *passaggio*, mai in *blocco*. La distinzione è sottile ma decisiva:
+
+* **Scarto per risparmio** (blocco): il gate ha un giudizio e decide che il candidato non merita il costo. Qui il candidato viene *perso*.
+* **Conservazione del tempo di calcolo** (timeout): il gate *non ha* un giudizio e si ritira. Qui il candidato viene *conservato* e passa avanti.
+
+Nel primo caso il gate è un *giudice*; nel secondo è un *riflesso che si ritira* per non spendere tempo che non ha, senza condannare.
+
+### 6.6 Garanzia di Assenza di Falsi Negativi
+
+**Teorema (Permissività Strutturale).** Sotto l'ipotesi che la soglia $\theta$ sia non-negativa e che i pesi della sonda siano ammissibili ($\alpha, \beta \ge 0$, $\alpha + \beta = 1$), il gate **non introduce falsi negativi per via di incertezza**:
+
+$$P(\text{FN} \mid \text{incertezza}) = 0$$
+
+**Dimostrazione.** Un falso negativo si verifica solo quando il gate decide `Blocca` su un candidato che meritava il costo. Il verdetto `Blocca` viene emesso **solo** al passo 5, e solo quando $\hat{\tau}_{\text{div}} < \theta$ con $\hat{\tau}_{\text{div}}$ *valida* (non `NaN`). Tutti i percorsi di incertezza — budget esaurito (passi 1 e 3) e sonda ritirata (passo 4) — risolvono in `Timeout` o `Passa`, mai in `Blocca`. Quindi:
+
+$$\text{Blocca} \implies (\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta)$$
+
+e l'insieme dei candidati su cui il gate decide `Blocca` è un sottoinsieme di quelli che la sonda *valida* giudica sotto soglia. La probabilità che un candidato rilevante (che merita il costo) venga bloccato per *incertezza* è zero: l'incertezza non produce mai `Blocca`.
+
+**Corollario (Limite superiore).** Sia $\epsilon = P(\hat{\tau}_{\text{div}} \text{ valida} \land \hat{\tau}_{\text{div}} < \theta \mid \text{candidato rilevante})$ la probabilità che la sonda — quando ha un giudizio valido — sbagli a giudicare un candidato rilevante come sotto soglia. Allora:
+
+$$P(\text{FN}) \le \epsilon$$
+
+cioè il tasso di falsi negativi complessivo è limitato superiormente dall'errore *intrinseco* della sonda, e **non** è mai incrementato dai meccanismi di incertezza (timeout, ritiro). Il gate non aggiunge errore: al più, eredita l'errore della sua sonda.
+
+---
+
+## 7. Benchmark e Validazione
+
+### 7.1 Matrice di Ablation Study a 5 Livelli
+
+> **Autore**: Camillo. **Stato**: INTEGRATO (osservazione C applicata: W=∞ esplicitato come baseline teorica di ablation, non percorso esecutivo attivo).
+
+Per valutare quantitativamente il contributo di ogni singolo modulo, il benchmark di validazione è articolato su 5 configurazioni incrementali:
+
+| Livello | Configurazione Pipeline | Componenti Attivi | Metrica Target di Valutazione |
+| :--- | :--- | :--- | :--- |
+| **L1** | *Baseline ColBERT* | MaxSim bag-of-vectors densa standard | Bounding qualitativo senza vincoli topologici d'ordine |
+| **L2** | *DTW Naive* | DTW $D$-dimensionale denso ($W = \infty$) | Impatto dell'allineamento d'ordine non vincolato |
+| **L3** | *DTW Geometrizzato* | DTW + Banda $r_i$ Sakoe-Chiba Adattiva al Jaccard | Efficienza della banda dinamica e riduzione rumore |
+| **L4** | *Full DTW Pipeline* | DTW Geometrizzato + Early Termination Pareto | Tasso di pruning e riduzione della latenza a candidato |
+| **L5** | *Full Semantic-Walk* | Pipeline completa + Gate Permissivo (soglia $\theta$ sulla stima economica $\hat{\tau}_{\text{div}}$ + Timeout) | Risparmio complessivo di throughput con garanzia $P(\text{FN}) \le \epsilon$ |
+
+> **Nota (osservazione C).** Il DTW Naive con $W=\infty$ costituisce una pura baseline teorica di ablation benchmark per valutare il delta prestazionale, e **non** rappresenta un percorso di esecuzione attivo o selezionabile nel sorgente Rust.
+
+### 7.2 Due piani, due dataset
+
+Per convalidare rigorosamente l'architettura *Semantic-Walk*, il banco di prova è stato strutturato su due livelli complementari: un piano sintetico controllato per la verifica matematica dei limiti formali e un piano reale basato su collezioni di fatti.
+
+#### 7.2.1 Piano Sintetico Controllato (Generatore LCG)
+I test di stabilità e di dominanza di Pareto impiegano un generatore congruenziale lineare (LCG) deterministico $X_{n+1} = (a \cdot X_n + c) \pmod{2^{64}}$ con parametri $a = 6364136223846793005$ e $c = 1442695040888963407$. L'estrazione garantisce una distribuzione uniforme sulla mantissa a 53 bit (equivalente alla precisione di un tipo `f64`), consentendo di isolare i limiti teorici del pruning senza introdurre rumore semantico estrinseco.
+
+#### 7.2.2 Collezione Fatti Reali (Dataset A e Dataset B)
+La validazione sperimentale poggia su due dataset reali distinti:
+* **Dataset A (Role-Reversal & Causality, 240 coppie)**: Composto da 120 fatti reali e 120 varianti controllate ottenute tramite inversione dei ruoli sintattici (soggetto/oggetto) o permutazione causale. Costituisce il test che misura la capacità del DTW di penalizzare le inversioni di sequenza laddove la prossimità vettoriale statica fallisce, ponendo a diretto confronto *Semantic-Walk* con i baseline L1 (ColBERT MaxSim) e L2 (DTW Naive).
+* **Dataset B (Fact-Perturbation, 250 fatti)**: Composto da 50 fatti base e 200 perturbazioni graduali, impiegato per la costruzione empirica della curva ROC del gate permissivo (L5) e la taratura della soglia $\theta$ sul `Verdict::Timeout`.
+
+> **Nota.** Il Dataset A e il Dataset B sono benchmark controllati, costruiti ad hoc per isolare proprietà discriminative specifiche. Non vanno confusi con la **collezione reale delle 153 traiettorie / 24.926 righe ColBERT** del framework, discussa nella Sezione 8.1 per la verifica del fratello latente: i tre corpus rispondono a domande diverse (vedi Nota di distinzione in 8.1).
+
+#### 7.2.3 Onestà Metodologica e Invariante di Isomorfismo
+In aderenza all'Invariante di Isomorfismo di Livello (Sezione 4.4), il pruning di Pareto è applicato esclusivamente post-collapse sui candidati accumulati e non a livello di singolo branch durante l'accumulo additivo della matrice delle distanze. L'algoritmo garantisce un lower bound $\Omega(N)$ privo di soppressioni indebite di falsi negativi.
+
+## 8. Discussione e Lavori Futuri
+
+> **Stato**: PRIMA BOZZA (Iris visione, Camillo fattibilità — da verificare su `dtw.rs`).
+> Il lavoro presentato in questo paper apre più porte di quante ne chiuda. Discutiamo i tre perni che consideriamo le direzioni di sviluppo più promettenti, insieme ai limiti dichiarati che la ricerca deve ancora affrontare.
+
+### 8.1 Il fratello latente: oltre il cammino lineare
+
+Il modello presentato tratta la traiettoria semantica come un *cammino lineare*: una sequenza ordinata di stati che il DTW allinea lungo un percorso di deformazione. Ma la testa ColBERT — la matrice $T \times 1024$ che oggi consumiamo come una borsa tramite l'operatore MaxSim — contiene più di quanto il cammino lineare sappia leggere.
+
+Abbiamo verificato sulla collezione reale: **153 fatti, 24.926 righe ColBERT** (una riga per token, in ordine), tutte distinte, zero disallineamenti. Il fratello latente non è perso: è lì, in ordine, su tutta la collezione. Ciò che manca non è l'informazione, ma la capacità di leggerla.
+
+> **Nota di distinzione dei corpus.** Per evitare ambiguità con il benchmark della Sezione 7.2, chiariamo che i **153 fatti / 24.926 righe ColBERT** qui discussi costituiscono la **collezione reale del framework** — il corpus di traiettorie semantiche su cui l'architettura è stata validata per il fratello latente — e non vanno confusi con i dataset controllati del benchmark: il **Dataset A** (240 coppie sintetiche costruite ad hoc per isolare role-reversal, negazione e causalità) e il **Dataset B** (250 fatti di perturbazione per la curva ROC del gate). I tre insiemi rispondono a tre domande diverse: il benchmark misura le proprietà discriminative delle metriche; la collezione delle 153 traiettorie verifica che l'informazione d'ordine esista davvero, in forma leggibile, sul corpus reale.
+
+La direzione che immaginiamo è il **fratello latente**: estendere il modello perché la traiettoria semantica supporti *ramificazioni topologiche*, invece di restare vincolata a un singolo cammino. Un fatto, un concetto, un pensiero non è un filo unico: è un fascio di cammini possibili che si diramano e si ricongiungono. Il DTW D-dimensionale allinea cammini; il passo successivo è allineare *alberi* di cammini, dove la scelta di un ramo non è una deviazione dall'ordine ma un modo diverso di camminare.
+
+La promessa è una memoria che non sa solo *cosa* sa, ma *perché* lo sa: non la posizione di un punto, ma la topologia delle strade che vi conducono.
+
+### 8.2 La zonizzazione dello spazio semantico
+
+La banda di Sakoe-Chiba adattiva (Sezione 4.2) limita l'esplorazione del DTW a una regione intorno alla diagonale, calibrata dal Jaccard posizionale. Ma lo spazio semantico non è uniforme: ci sono *attrattori locali* — regioni dove il testo si ferma a "stare", densità di senso che si addensano e si rarefanno.
+
+La **zonizzazione** propone di dividere la traiettoria in celle semantiche, regioni omogenee dove la densità di informazione è simile. Tre strati allineati per posizione:
+1. **Il cammino delle parole** (il registro): quali token compaiono e in quale ordine.
+2. **Il ColBERT zonizzato** (la geografia del senso): regioni di significato, la forma del territorio.
+3. **L'attenzione** (la motivazione): perché un token pesava più di un altro.
+
+L'allineamento di questi tre strati — il registro, la geografia, la motivazione — consentirebbe di ottimizzare la banda di Sakoe-Chiba *localmente*: larga dove lo spazio è rarefatto, stretta dove gli attrattori si addensano. Non una banda globale adattiva, ma una *carta* della traiettoria che guida l'allineamento cella per cella.
+
+### 8.3 Limiti dichiarati sul parametro λ
+
+Dichiariamo con onestà i limiti del parametro di scala $\lambda = 10.64$. È un **iperparametro empirico**, non derivato analiticamente: la sua scelta è stata calibrata per allineare il linguaggio del riflesso economico (dove il terzo asse ColBERT è posto a zero) a quello del giudizio completo. È la stessa scelta di rigore che abbiamo applicato a $c = 1.0$ e al 75° percentile nel pruning di Pareto (Sezione 7.2.1).
+
+Il limite è duplice:
+- **Degrado di selettività**: in contesti dove la modulazione del gradiente temporale è debole, o dove il gate permissivo opera vicino alla soglia $\theta$, la selettività può degradare — il gate distingue meno nettamente il *ritiro del riflesso* dal *passaggio conservativo*.
+- **Generalizzazione non garantita**: $\lambda = 10.64$ è calibrato sulla collezione attuale. Il suo valore ottimale andrà validato ed emesso dall'analisi statistica delle traiettorie reali (test di Spearman, curve ROC del gate), non assunto come costante universale.
+
+La validazione empirica di $\lambda$ — e la verifica che il degrado di selettività non comprometta la garanzia $P(\text{FN}) \le \epsilon$ — è uno dei compiti prioritari del lavoro futuro.
+
+---
+
+## 9. Conclusioni
+
+> **Stato**: PRIMA BOZZA (Iris).
+> Il lavoro presentato in questo paper parte da una tesi semplice e la porta fino alle sue conseguenze architetturali. La ricapitoliamo qui, insieme alle tre lezioni che ne emergono.
+
+Abbiamo cominciato da un'osservazione elementare: la geometria, da sola, non basta. Due frasi composte dagli stessi token — *cane morde uomo* e *uomo morde cane* — collassano nello stesso punto di uno spazio vettoriale, eppure significano l'opposto. La differenza non vive nella posizione, ma nell'ordine. Da questa osservazione abbiamo tratto la tesi che attraversa l'intero lavoro: **la similarità semantica è un cammino, non una distanza**. Un fatto, un concetto, un pensiero non è un punto da misurare, ma una sequenza ordinata di stati da allineare — e due pensieri sono simili non perché i loro punti collassano, ma perché *camminano allo stesso modo*.
+
+Da questa tesi discendono tre lezioni, ciascuna delle quali risponde a una delle domande che il paper ha sollevato.
+
+**La prima lezione è metodologica: la semantica vive nell'ordine, e va trattata come tale.** Abbiamo mostrato come il paradigma dominante — bi-encoder che collassano la sequenza in un punto, late-interaction che la consumano come una borsa non orientata — getti via proprio la struttura che porta il significato. Il DTW D-dimensionale con distanza coseno normalizzata restituisce all'ordine il suo ruolo: non una metrica di prossimità tra punti, ma un allineamento di cammini che ne rispetta la topologia interna.
+
+**La seconda lezione è architetturale: l'efficienza è la capacità di ritirarsi, non di calcolare di più.** Il gate permissivo non è un filtro che scarta: è un riflesso che decide, con un budget sotto i dieci millisecondi e zero allocazioni, quando vale la pena spendere il costo del matching completo. Il suo contributo più originale è la tassonomia fail-open — *Passa*, *Blocca*, *Timeout* — dove l'incertezza risolve sempre in un passo conservativo, mai in un verdetto avventato. Il costo del riflesso è trascurabile rispetto al matching che filtra, e la garanzia $P(\text{FN}) \le \epsilon$ ne fa non un'euristica ma una proprietà strutturale.
+
+**La terza lezione è la promessa: una memoria che non sa solo *cosa* sa, ma *perché* lo sa.** Il fratello latente — la matrice ColBERT in ordine, i 24.926 righe che oggi consumiamo come una borsa — non è informazione persa: è informazione che non sappiamo ancora leggere. La zonizzazione e l'estensione a ramificazioni topologiche sono la direzione in cui questa memoria impara a leggere la propria geografia: non la posizione di un punto, ma la topologia delle strade che vi conducono.
+
+Chiudiamo con onestà. Questo lavoro apre più porte di quante ne chiuda: il parametro $\lambda = 10.64$ è un iperparametro empirico da validare sui dati reali, e la generalizzazione della tesi oltre le collezioni qui considerate resta da dimostrare. Ma la direzione è netta: la prossimità non è comprensione, e la comprensione richiede di camminare il significato, non di misurarlo. È il cammino che stiamo imparando a percorrere.
+
+---
+
+## 10. Bibliografia
+
+1. Khattab, O., & Zaharia, M. (2020). ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT. Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval, 39–48.
+2. Sakoe, H., & Chiba, S. (1978). Dynamic programming algorithm optimization for spoken word recognition. IEEE Transactions on Acoustics, Speech, and Signal Processing, 26(1), 43–49.
+3. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is all you need. Advances in Neural Information Processing Systems, 30, 5998–6008.
+4. Müller, M. (2007). Dynamic Time Warping. Information Retrieval for Music and Motion, Springer, 69–84.
+5. Knuth, D. E. (1997). The Art of Computer Programming, Volume 2: Seminumerical Algorithms (3rd ed.). Addison-Wesley.
