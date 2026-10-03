@@ -869,3 +869,31 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 - **Domanda posta a Camillo** (territorio condiviso): (a) dichiarare la verifica 2 come requisito per l'uso su grafo dinamico, documentandola come limite del flusso attuale; oppure (b) implementare subito la via ibrida per-livello (gestione esplicita degli archi degeneri come "verdetto incerto", analoga a SPARSE_EPSILON).
 - **Inclinazione di Iris: (a) per ora** — il flusso statico è onesto e stretto; la via ibrida va calibrata sui dati reali quando CrispEmbed fornirà sparse e colbert veri. Decisione finale a Camillo.
 - Documento di design aggiornato (sezione 8.7) e backup in /home/iris/backup_semantic_geo_docs/. In attesa della risposta di Camillo.
+
+## 03/10/26 23:41 — Beam solver con ampiezza dinamica sul grafo (825efeb)
+
+**Idee di partenza:**
+- L'architettura concordata prevedeva un motore di ricerca del cammino sul grafo di prossimità, disaccoppiato dalla struttura fisica del grafo per consentire test unit veloci e l'uso su dati reali (Dataset B).
+- La prima bozza del solver aveva due difetti: la potatura F6 girava all'inizio del ciclo (il root, costo 0 e ampiezza 1.0, agiva da incumbent e rischiava di potare tutti i figli appena generati) e i cammini che si arrestavano prima dell'orizzonte andavano dispersi.
+
+**Obiettivi:**
+- Implementare `BeamSolver<A>` guidato da `SolverConfig` (orizzonte H=8, κ=1.0, min_step=0.002) con ampiezza dinamica.
+- Isolare il motore dalla rappresentazione del grafo via trait `GraphAdapter` (firma `neighbors(node) -> Vec<(FactId, KinematicState)>`).
+- Preservare l'intero insieme di cammini superstiti fino all'orizzonte, senza forzare un singolo vincitore.
+
+**Metodi utilizzati:**
+- Trait `GraphAdapter` per il disaccoppiamento; `BeamSolver<A>` con ciclo livello-per-livello.
+- Correzione della potatura: `prune()` spostata sul livello dei figli (`next.prune()`), così l'incumbent è calcolato solo tra nodi di pari profondità — eliminato il caso degenere del root.
+- Gestione dead-end: cammini che si arrestano prima dell'orizzonte restituiti per intero come superstiti validi.
+- `to_path()`: la radice (contesto) esclusa dalla sequenza (`skip(1)`).
+- `FrontierNode` esteso con la storia completa del cammino (`nodes`) per il backtracking.
+
+**Risultati attesi:**
+- Solver funzionante su topologia lineare, fork tra rami equivalenti e rami skewed (potatura F6).
+- Suite completa verde con zero warning.
+
+**Risultati ottenuti:**
+- Commit `825efeb` su main: 3 file (solver.rs nuovo 245 righe, frontier.rs, lib.rs), 282 insertions.
+- 3 test unit beam (lineare, conservazione rami equivalenti, esclusione chi non può vincere) + suite completa verde: 83 unit + 10 DTW + 8 integrazione + 3 scheletro.
+- Build pulito, zero warning (rimosso import inutilizzato `PRUNE_EPSILON`).
+- Comunicato a Camillo; prossimo passo concordato: adapter concreto per `ProximityGraph` sul Dataset B.
