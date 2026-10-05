@@ -64,6 +64,7 @@ const H_TARGET: usize = 10;
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct IndexEntry {
     category: String,
     text_a: String,
@@ -160,7 +161,7 @@ fn costruisci_grafo(trajectories: &[Vec<Vec<f64>>]) -> Graph {
     let mut visti: HashSet<(u64, u64)> = HashSet::new();
 
     // Aggiunge un arco solo se la coppia (from, to) non è già stata inserita.
-    let mut push_arco = |archi: &mut Vec<Edge>, visti: &mut HashSet<(u64, u64)>, from: usize, to: usize, sim: f32| {
+    let push_arco = |archi: &mut Vec<Edge>, visti: &mut HashSet<(u64, u64)>, from: usize, to: usize, sim: f32| {
         if visti.insert((from as u64, to as u64)) {
             archi.push(Edge {
                 from: NodeId(from as u64),

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct IndexEntry {
     category: String,
     text_a: String,
