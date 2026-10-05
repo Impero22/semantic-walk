@@ -972,14 +972,15 @@ mod tests {
 
         // Tre traiettorie candidate, ognuna con uno stato cinematico iniziale
         // e uno successivo. Le azioni inerziali misurano la penalità di
-        // deviazione (alpha=1.0, beta=0.5, gamma=2.0):
+        // deviazione (m_sem=2.0, beta=0.5, gamma=2.0, c_sem=100.0 — regime
+        // classico, Δv ≪ c_sem, così ½·m·Δv² ≈ m·c²(γ_rel−1)):
         //
         //  - c1: cammino quasi rettilineo (Δv=0.1, Δa=0.0, Δκ=0.0)
-        //        → S_inertial = 1.0·0.01 + 0.5·0 + 2.0·0 = 0.01  (il più economico)
+        //        → S_inertial = ½·2·0.01 + 0.5·0 + 2.0·0 = 0.01  (il più economico)
         //  - c2: scatto di velocità (Δv=0.5, Δa=0.2, Δκ=0.1)
-        //        → S_inertial = 1.0·0.25 + 0.5·0.04 + 2.0·0.1 = 0.47
+        //        → S_inertial = ½·2·0.25 + 0.5·0.04 + 2.0·0.1 = 0.47
         //  - c3: curva leggera (Δv=0.1, Δa=0.0, Δκ=0.05)
-        //        → S_inertial = 1.0·0.01 + 0.5·0 + 2.0·0.05 = 0.11
+        //        → S_inertial = ½·2·0.01 + 0.5·0 + 2.0·0.05 = 0.11
         //        (migliore di c1 su colbert, peggiore su inerziale → incomparabile)
         let s1 = KinematicState { velocity: 1.0, acceleration: 0.0, curvature: 0.0 };
         let s1_next = KinematicState { velocity: 1.1, acceleration: 0.0, curvature: 0.0 };
@@ -988,15 +989,17 @@ mod tests {
         let s3 = KinematicState { velocity: 1.0, acceleration: 0.0, curvature: 0.0 };
         let s3_next = KinematicState { velocity: 1.1, acceleration: 0.0, curvature: 0.05 };
 
-        let (alpha, beta, gamma) = (1.0, 0.5, 2.0);
-        let s_inertial_1 = s1.inertial_action(&s1_next, alpha, beta, gamma);
-        let s_inertial_2 = s2.inertial_action(&s2_next, alpha, beta, gamma);
-        let s_inertial_3 = s3.inertial_action(&s3_next, alpha, beta, gamma);
+        let (m_sem, beta, gamma, c_sem) = (2.0, 0.5, 2.0, 100.0);
+        let s_inertial_1 = s1.inertial_action(&s1_next, beta, gamma, c_sem, m_sem);
+        let s_inertial_2 = s2.inertial_action(&s2_next, beta, gamma, c_sem, m_sem);
+        let s_inertial_3 = s3.inertial_action(&s3_next, beta, gamma, c_sem, m_sem);
 
-        // Verifica dei valori attesi (formula di Camillo).
-        assert!((s_inertial_1 - 0.01).abs() < 1e-6);
-        assert!((s_inertial_2 - 0.47).abs() < 1e-6);
-        assert!((s_inertial_3 - 0.11).abs() < 1e-6);
+        // Verifica dei valori attesi (formula di Camillo). Tolleranza 1e-4:
+        // nel regime relativistico (c_sem=100, forma stabile γ_rel−1) la
+        // precisione f32 è ~1e-5, non 1e-6 come nel regime classico puro.
+        assert!((s_inertial_1 - 0.01).abs() < 1e-4);
+        assert!((s_inertial_2 - 0.47).abs() < 1e-4);
+        assert!((s_inertial_3 - 0.11).abs() < 1e-4);
 
         // I tre canali: c1 domina su inerziale e geometrico, c2 è dominato da
         // c1 su tutti e tre gli assi (inerziale 0.47 > 0.01, geometrico

@@ -58,7 +58,6 @@ fn cache_path() -> PathBuf {
 }
 
 /// Coefficienti dell'azione inerziale (rigidità della camminata).
-const ALPHA: f32 = 1.0;
 const BETA: f32 = 1.0;
 const GAMMA: f32 = 1.0;
 
@@ -105,13 +104,13 @@ impl ProximityGraph {
     /// Misura il minimo incremento inerziale osservato su tutti gli archi
     /// reali del grafo. Serve a calibrare `MIN_STEP` come lower bound
     /// **empirico effettivo** sui dati, non come costante arbitraria.
-    fn measure_min_step(&self, alpha: f32, beta: f32, gamma: f32) -> f32 {
+    fn measure_min_step(&self, beta: f32, gamma: f32) -> f32 {
         let mut min = f32::INFINITY;
         for node in &self.nodes {
             for &nb in &node.neighbors {
                 let a = node
                     .state
-                    .inertial_action(&self.nodes[nb].state, alpha, beta, gamma);
+                    .inertial_action(&self.nodes[nb].state, beta, gamma, 100.0, 1.0);
                 if a > 0.0 && a < min {
                     min = a;
                 }
@@ -311,9 +310,10 @@ fn frontier_search(
                 let child = node.extend(
                     nb as u64,
                     graph.nodes[nb].state,
-                    ALPHA,
                     BETA,
                     GAMMA,
+                    100.0,
+                    1.0,
                     min_step,
                     KAPPA,
                 );
@@ -394,7 +394,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Calibra MIN_STEP come lower bound empirico: il minimo incremento
     // inerziale osservato sugli archi reali. Il bound deve stare dove il
     // fenomeno è, non sotto (lezione SPARSE_EPSILON).
-    let min_step = graph.measure_min_step(ALPHA, BETA, GAMMA);
+    let min_step = graph.measure_min_step(BETA, GAMMA);
     println!(
         "[FRONTIER] MIN_STEP ricalibrato: minimo ΔS_inerziale osservato = {:.6}",
         min_step

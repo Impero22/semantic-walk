@@ -56,9 +56,12 @@ pub struct SolverConfig {
     /// Il damping dell'ampiezza (kappa_break).
     pub kappa: f32,
     /// Coefficienti dell'azione inerziale (rigidità della camminata).
-    pub alpha: f32,
     pub beta: f32,
     pub gamma: f32,
+    /// La velocità semantica massima (barriera relativistica, Fase 1).
+    pub c_sem: f32,
+    /// La massa semantica (coefficiente del termine relativistico, Fase 1).
+    pub m_sem: f32,
     /// Il bound inerziale per-livello (minimo empirico osservato).
     pub min_step: f32,
 }
@@ -68,9 +71,10 @@ impl Default for SolverConfig {
         SolverConfig {
             horizon: 8,
             kappa: 1.0,
-            alpha: 1.0,
             beta: 1.0,
             gamma: 1.0,
+            c_sem: 100.0,
+            m_sem: 1.0,
             min_step: 0.002,
         }
     }
@@ -143,9 +147,10 @@ impl<A: GraphAdapter> BeamSolver<A> {
                     if let Some(child) = node.extend(
                         next_id,
                         next_state,
-                        self.config.alpha,
                         self.config.beta,
                         self.config.gamma,
+                        self.config.c_sem,
+                        self.config.m_sem,
                         self.config.min_step,
                         self.config.kappa,
                     ) {
@@ -212,7 +217,7 @@ mod tests {
         // Un solo cammino: 0 → 1, due passi.
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].nodes, vec![1]);
-        assert_eq!(paths[0].total_cost, 1.0); // α·Δv² = 1·1² = 1
+        assert_eq!(paths[0].total_cost, 0.5000125); // m·c²·(γ−1) con Δv=1, c=100, m=1
     }
 
     #[test]

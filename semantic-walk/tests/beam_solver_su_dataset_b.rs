@@ -51,7 +51,6 @@ fn cache_path() -> PathBuf {
     data_dir().join("dataset_b_cache_fixed.npz")
 }
 
-const ALPHA: f32 = 1.0;
 const BETA: f32 = 1.0;
 const GAMMA: f32 = 1.0;
 const KAPPA: f32 = 2.0;
@@ -319,9 +318,10 @@ fn beam_solver_su_dataset_b() {
     let config = SolverConfig {
         horizon: H_TARGET,
         kappa: KAPPA,
-        alpha: ALPHA,
         beta: BETA,
         gamma: GAMMA,
+        c_sem: 100.0,
+        m_sem: 1.0,
         min_step: 0.002,
     };
     let solver = BeamSolver::new(adapter, config);

@@ -145,9 +145,10 @@ impl FrontierNode {
         &self,
         next_id: FactId,
         next_state: KinematicState,
-        alpha: f32,
         beta: f32,
         gamma: f32,
+        c_sem: f32,
+        m_sem: f32,
         min_step: f32,
         kappa: f32,
     ) -> Option<Self> {
@@ -155,7 +156,7 @@ impl FrontierNode {
             // u ≠ v imposto: nessuna wait-action, nessuno stato identico.
             return None;
         }
-        let action = self.state.inertial_action(&next_state, alpha, beta, gamma);
+        let action = self.state.inertial_action(&next_state, beta, gamma, c_sem, m_sem);
         debug_assert!(
             action >= min_step - PRUNE_EPSILON,
             "arco traversato con costo {action} sotto ΔS_min {min_step}"
@@ -319,7 +320,7 @@ mod tests {
     fn u_ne_v_imposto_stato_identico_non_estende() {
         // Un figlio con stato identico al padre è vietato: nessuna wait-action.
         let parent = FrontierNode::root(0, state(1.0, 0.0, 0.0), 0.5);
-        let child = parent.extend(1, state(1.0, 0.0, 0.0), 1.0, 1.0, 1.0, 0.5, 2.0);
+        let child = parent.extend(1, state(1.0, 0.0, 0.0), 1.0, 1.0, 100.0, 1.0, 0.5, 2.0);
         assert!(child.is_none(), "stato identico al padre non deve estendere");
     }
 
@@ -328,12 +329,13 @@ mod tests {
         // Un figlio con stato distinto dal padre estende correttamente.
         let parent = FrontierNode::root(0, state(1.0, 0.0, 0.0), 0.5);
         let child = parent
-            .extend(1, state(3.0, 0.0, 0.0), 2.0, 1.0, 1.0, 0.5, 2.0)
+            .extend(1, state(3.0, 0.0, 0.0), 1.0, 1.0, 100.0, 1.0, 0.5, 2.0)
             .expect("stato distinto deve estendere");
-        // α·Δv² = 2·4 = 8, cum_cost = 8, depth = 1
-        assert!((child.cum_cost - 8.0).abs() < 1e-6);
+        // m·c²·(γ−1) con Δv=2, c=100, m=1: γ−1≈0.0002 → cum_cost ≈ 2.0002,
+        // depth = 1
+        assert!((child.cum_cost - 2.0002).abs() < 1e-3);
         assert_eq!(child.depth, 1);
-        assert!((child.amplitude - (-8.0f32 / 2.0).exp()).abs() < 1e-6);
+        assert!((child.amplitude - (-2.0002f32 / 2.0).exp()).abs() < 1e-3);
     }
 
     #[test]
