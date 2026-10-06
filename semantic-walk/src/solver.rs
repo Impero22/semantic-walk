@@ -270,4 +270,38 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].nodes, vec![1]);
     }
+
+    #[test]
+    fn beam_non_riattraversa_i_nodi_gia_visitati() {
+        // Grafo simmetrico: 0 ↔ 1 ↔ 2. Senza ciclo-detection, il beam
+        // genererebbe A→B→A→B→… in modo combinatorio. Con la guardia,
+        // ogni cammino visita ogni nodo al più una volta.
+        struct CycleAdapter;
+        impl GraphAdapter for CycleAdapter {
+            fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)> {
+                match node {
+                    0 => vec![(1, state(1.0, 0.0, 0.0))],
+                    1 => vec![(0, state(1.0, 0.0, 0.0)), (2, state(1.0, 0.0, 0.0))],
+                    2 => vec![(1, state(1.0, 0.0, 0.0))],
+                    _ => vec![],
+                }
+            }
+        }
+        let solver = BeamSolver::new(CycleAdapter, SolverConfig {
+            horizon: 4,
+            ..Default::default()
+        });
+        let paths = solver.solve(0, state(0.0, 0.0, 0.0));
+        // Nessun cammino deve contenere un nodo ripetuto.
+        for p in &paths {
+            let mut nodi = p.nodes.clone();
+            nodi.sort();
+            nodi.dedup();
+            assert_eq!(nodi.len(), p.nodes.len(), "cammino con nodo ripetuto: {:?}", p.nodes);
+        }
+        // Con la ciclo-detection, i cammini non esplodono: da 0 si può
+        // arrivare a 1 e poi a 2, ma non tornare indietro. Il numero di
+        // cammini è limitato (niente 0→1→0→1→…).
+        assert!(paths.len() <= 2, "esplosione cammini: {}", paths.len());
+    }
 }

@@ -93,6 +93,14 @@ impl ProximityAdapter {
             curvature: curvature as f32,
         })
     }
+
+    /// Lo stato intrinseco di un nodo (la media delle sonde dei suoi archi).
+    ///
+    /// Restituisce `KinematicState::default()` se il nodo non ha archi
+    /// (stato non definibile) o non è nella cache.
+    pub fn state_of(&self, node: FactId) -> KinematicState {
+        self.stati.get(&NodeId(node)).copied().unwrap_or_default()
+    }
 }
 
 impl GraphAdapter for ProximityAdapter {

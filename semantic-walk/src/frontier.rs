@@ -61,7 +61,7 @@ use semantic_combiner::FactId;
 /// confine: stessa soglia d'incertezza, nessuna costante magica nuova.
 /// Definisce la fascia in cui un confronto è "verdetto incerto" e non va
 /// deciso per troncamento.
-pub const PRUNE_EPSILON: f32 = 0.002;
+pub const PRUNE_EPSILON: f32 = 0.00001;
 
 /// Un nodo della frontiera di ricerca del cammino.
 ///
@@ -153,6 +153,7 @@ impl FrontierNode {
         kappa: f32,
     ) -> Option<Self> {
         if next_state == self.state {
+        if self.nodes.contains(&next_id) { return None; }
             // u ≠ v imposto: nessuna wait-action, nessuno stato identico.
             return None;
         }
@@ -247,7 +248,7 @@ impl Frontier {
             .iter()
             .map(|n| n.upper_bound_amplitude(self.horizon, self.kappa))
             .fold(f32::NEG_INFINITY, f32::max);
-        let threshold = incumbent_upper - PRUNE_EPSILON;
+        let threshold = incumbent_upper * (1.0 - PRUNE_EPSILON);
         self.buffer.retain(|n| {
             let upper = n.upper_bound_amplitude(self.horizon, self.kappa);
             // Parità esatta o fascia d'incertezza: preservato.

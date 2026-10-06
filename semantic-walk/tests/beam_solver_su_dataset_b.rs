@@ -323,7 +323,7 @@ fn beam_solver_su_dataset_b() {
         gamma: GAMMA,
         c_sem: 100.0,
         m_sem: 1.0,
-        min_step: 0.002,
+        min_step: 0.0005,
     };
     let solver = BeamSolver::new(adapter, config);
 
