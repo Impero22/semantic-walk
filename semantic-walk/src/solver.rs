@@ -304,4 +304,48 @@ mod tests {
         // cammini è limitato (niente 0→1→0→1→…).
         assert!(paths.len() <= 2, "esplosione cammini: {}", paths.len());
     }
+
+    #[test]
+    fn beam_non_riattraversa_nodo_con_stato_diverso() {
+        // Il caso critico che la vecchia guardia non intercettava: un nodo
+        // raggiungibile con DUE stati diversi, riattraversato con quello
+        // diverso. `next_state == self.state` è falso (stati diversi), quindi
+        // una ciclo-detection annidata dentro quel blocco NON scatta.
+        //
+        // Grafo: 0 → 1 (stato A), 1 → 2 (stato B), 2 → 1 (stato C ≠ B).
+        // Senza la guardia fuori dal blocco, 1 verrebbe riattraversato da 2
+        // con stato C e il cammino 0→1→2→1 nascerebbe — un ciclo.
+        struct RevisitAdapter;
+        impl GraphAdapter for RevisitAdapter {
+            fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)> {
+                match node {
+                    0 => vec![(1, state(1.0, 0.0, 0.0))],
+                    1 => vec![(2, state(2.0, 0.0, 0.0))],
+                    2 => vec![(1, state(3.0, 0.0, 0.0))], // stato C ≠ B
+                    _ => vec![],
+                }
+            }
+        }
+        let solver = BeamSolver::new(RevisitAdapter, SolverConfig {
+            horizon: 4,
+            ..Default::default()
+        });
+        let paths = solver.solve(0, state(0.0, 0.0, 0.0));
+        // Nessun cammino deve riattraversare il nodo 1, qualunque stato abbia.
+        for p in &paths {
+            let mut nodi = p.nodes.clone();
+            nodi.sort();
+            nodi.dedup();
+            assert_eq!(nodi.len(), p.nodes.len(), "cammino con nodo ripetuto: {:?}", p.nodes);
+        }
+        // Il cammino legittimo è 0→1→2. Il ritorno 2→1 deve essere bloccato
+        // dalla ciclo-detection, non dallo stato identico (che qui è diverso).
+        for p in &paths {
+            assert!(
+                !p.nodes.windows(2).any(|w| w[0] == 1 && w[1] == 1),
+                "riattraversamento di 1 con stato diverso: {:?}",
+                p.nodes
+            );
+        }
+    }
 }

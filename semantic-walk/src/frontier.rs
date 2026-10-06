@@ -152,8 +152,15 @@ impl FrontierNode {
         min_step: f32,
         kappa: f32,
     ) -> Option<Self> {
+        // Ciclo-detection: non riattraversare mai un nodo già visitato nel
+        // cammino corrente, qualunque sia lo stato con cui ci si arriverebbe.
+        // Il controllo è fuori dal blocco dello stato identico: il caso comune
+        // è riattraversare un nodo con uno stato DIVERSO (arrivandoci da un
+        // percorso alternativo), e va intercettato anche quello.
+        if self.nodes.contains(&next_id) {
+            return None;
+        }
         if next_state == self.state {
-        if self.nodes.contains(&next_id) { return None; }
             // u ≠ v imposto: nessuna wait-action, nessuno stato identico.
             return None;
         }
