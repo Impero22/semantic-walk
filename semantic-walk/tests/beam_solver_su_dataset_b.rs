@@ -213,7 +213,39 @@ impl FrameAdapter {
             adiacenze.entry(e.to.0).or_default().push(e.from.0);
         }
 
+        // Ordinamento deterministico dei vicini: l'iterazione su `HashMap` è
+        // casuale a ogni esecuzione (hashing random di Rust), e senza un
+        // ordine stabile l'espansione dei rami del beam search non è
+        // riproducibile tra le run — fonte del flake su questo test.
+        for v in adiacenze.values_mut() {
+            v.sort_unstable();
+        }
+
         FrameAdapter { grafo, stati, adiacenze }
+    }
+
+    /// Misura il minimo incremento inerziale osservato su tutti gli archi
+    /// reali del grafo con stati distinti. Serve a calibrare `min_step` come
+    /// lower bound **empirico effettivo** sui dati (la convenzione del
+    /// benchmark `measure_min_step`), non come costante arbitraria cablata.
+    fn measure_min_step(&self) -> f32 {
+        let mut min = f32::INFINITY;
+        for e in &self.grafo.archi {
+            let s_from = self.stati.get(&e.from).copied().unwrap_or_default();
+            let s_to = self.stati.get(&e.to).copied().unwrap_or_default();
+            if s_from == s_to {
+                continue;
+            }
+            let a = s_from.inertial_action(&s_to, BETA, GAMMA, 100.0, 1.0);
+            if a > 0.0 && a < min {
+                min = a;
+            }
+        }
+        if min.is_finite() {
+            min
+        } else {
+            1e-6
+        }
     }
 }
 
@@ -282,6 +314,13 @@ fn beam_solver_su_dataset_b() {
     };
     let root_state = adapter.stati.get(&NodeId(root_id)).copied().unwrap_or_default();
 
+    // Calibra `min_step` dinamicamente: misura il minimo incremento inerziale
+    // reale sugli archi del grafo (con la convenzione `derive_state`), invece
+    // di cablare una costante. Con un valore cablato troppo alto (0.0005) il
+    // `debug_assert!` del solver (soglia `min_step - PRUNE_EPSILON`) scattava
+    // su 76 archi reali con azione ~0.000015, rendendo il test instabile.
+    let min_step = adapter.measure_min_step();
+
     // Costruisce il solver con l'Opzione A: H = massimo target.
     let config = SolverConfig {
         horizon: H_TARGET,
@@ -290,7 +329,7 @@ fn beam_solver_su_dataset_b() {
         gamma: GAMMA,
         c_sem: 100.0,
         m_sem: 1.0,
-        min_step: 0.0005,
+        min_step,
     };
     let solver = BeamSolver::new(adapter, config);
 
