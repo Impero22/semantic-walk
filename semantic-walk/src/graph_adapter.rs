@@ -4,7 +4,30 @@
 //! prossimità costruito dai fatti della memoria) e il `BeamSolver` di
 //! `semantic-walk` (la ricerca a orizzonte con ampiezza dinamica).
 //!
-//! ## La convenzione dello stato intrinseco
+//! ## ⚠️ La convenzione dello stato intrinseco (aggiornata 06/10)
+//!
+//! **Decisione di contratto con Camillo (06/10): `derive_state` (geometria
+//! locale del frame) è la convenzione CANONICA** per costruire il
+//! `KinematicState` che alimenta il beam. La convenzione è ora eseguibile
+//! dal codice di produzione: vive in [`crate::state::derive_state`], non più
+//! solo nei test e nei benchmark.
+//!
+//! La **media delle sonde degli archi** (la convenzione di questo modulo,
+//! concordata il 03/10) è **declassata a strategia secondaria/opzionale**.
+//! Motivo: la media appiattisce la varianza tra i nodi (tutti gli stati
+//! finiscono quasi identici), degradando la capacità del beam di distinguere
+//! le traiettorie — il problema già emerso con la calibrazione di kappa. La
+//! geometria locale del frame (`derive_state`) cattura la dinamica reale del
+//! vettore (norma, accelerazione come delta di norma, curvatura come
+//! deviazione angolare) senza spalmarla sugli archi adiacenti.
+//!
+//! Questo modulo mantiene `ProximityAdapter` (media sonde) come **strategia
+//! secondaria** per compatibilità con i benchmark esistenti
+//! (`bench_proximity_adapter_end2end`, `diag_*`) e per i casi in cui lo
+//! stato per-frame non è disponibile (es. nodi aggregati senza geometria
+//! locale). Il contratto canonico per il beam è `derive_state`.
+//!
+//! ## La convenzione (storica, 03/10 — ora secondaria)
 //!
 //! Nel `ProximityGraph` le sonde (dense/sparse/colbert) vivono sugli **archi**,
 //! non sui nodi. Il `KinematicState` del solver è invece **assoluto al nodo**:
@@ -12,8 +35,7 @@
 //! provenienza — altrimenti lo stato di un nodo cambierebbe a seconda che ci si
 //! arrivi da A o da C, rompendo la semantica di `extend`.
 //!
-//! La convenzione concordata con Camillo (03/10): lo stato del nodo è la
-//! **media delle sonde dei suoi archi**:
+//! La media delle sonde dei suoi archi:
 //!
 //! * `velocity` — la media degli `score` → la forza complessiva del legame del
 //!   nodo col grafo.
