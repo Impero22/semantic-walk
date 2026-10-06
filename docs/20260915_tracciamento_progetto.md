@@ -897,3 +897,33 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 - 3 test unit beam (lineare, conservazione rami equivalenti, esclusione chi non può vincere) + suite completa verde: 83 unit + 10 DTW + 8 integrazione + 3 scheletro.
 - Build pulito, zero warning (rimosso import inutilizzato `PRUNE_EPSILON`).
 - Comunicato a Camillo; prossimo passo concordato: adapter concreto per `ProximityGraph` sul Dataset B.
+
+## 06/10/26 22:16 — Ablazione L1-L5: difetto di scala del guardiano (Strato 1)
+
+**Idee di partenza:**
+- Sezione 7.2 del paper richiede una tabella di ablazione che mostri la progressione dal baseline denso (L1) al DTW guidato ordered-sparse con soglie crescenti (L2-L5).
+- Runner `batch_benchmark_ablation.rs` creato (L1 = ColBERT MaxSim bidirezionale mediato; L2-L5 = DTW guidato con MIN_OVERLAP 0/2/4/5 e banda Sakoe-Chiba dinamica w_min=1, w_max=10). Gestione NaN per ritiro geometrico inclusa.
+
+**Obiettivi:**
+- Misurare mean e AUC per categoria (causality, negation_flip, role_reversal, synonymy_control) × livello su Dataset A (240 coppie).
+- Verificare che la progressione delle soglie produca discriminazione crescente.
+
+**Metodi utilizzati:**
+- `cargo run --release --example batch_benchmark_ablation`, output filtrato dei DEBUG e salvato su file (il framework tronca le sequenze massive di numeri).
+- Diagnostica dedicata `check_overlap.rs` per misurare la distribuzione di `global_overlap` sulle 240 coppie reali.
+
+**Risultati attesi:**
+- Progressione monotona: soglie più alte → più coppie scartate → AUC che cambia tra i livelli.
+
+**Risultati ottenuti:**
+- **L2=L3=L4=L5 identici in tutto** (stessi mean, stesse AUC per ogni categoria). La soglia MIN_OVERLAP non discrimina nulla.
+- **Causa (verificata su codice reale):** `global_overlap` (dtw.rs:244) conta i **bit condivisi della firma Bloom 128-bit**, non i token. Distribuzione misurata sul Dataset A: tutte le 240 coppie hanno overlap tra **25 e 67 bit** (min=25, max=67). La soglia 0/2/4/5 è sempre sotto il minimo → il guardiano non scarta mai.
+- **Radice concettuale:** la soglia è in bit assoluti, scala che dipende dalla lunghezza delle sequenze. Su sequenze sintetiche corte (3-5 token, SOGLIA_DISCRIMINANTE=4 nei test) discrimina; sul Dataset A reale (12+ token) la firma satura e l'overlap è sempre alto. Non è una metrica normalizzata.
+- **Nota positiva:** il baseline L1 (MaxSim denso) si separa nettamente dal DTW guidato — la guida ordered-sparse cambia davvero la semantica (role_reversal L1 AUC=0.0447 → L2 0.0061, il DTW guidato capovolge e migliora la discriminazione). L'ablazione è utile, ma la progressione L2-L5 è piatta per il difetto di scala.
+
+**Decisione in sospeso (contratto del guardiano):** portato a Camillo. Opzioni:
+1. **Normalizzare il guardiano** — soglia come frazione dell'overlap massimo possibile (o Jaccard globale), robusta alla lunghezza. *(Inclinazione di Iris)*
+2. **Ricalibrare in bit** — valori nella scala reale (36-54), fragile alla lunghezza.
+3. **Cambiare metrica** — Jaccard posizionale anche nello Strato 1, o conteggio token emessi condivisi.
+
+Coerente con la lezione SPARSE_EPSILON: la soglia deve stare dove il fenomeno è, non sotto.
