@@ -35,7 +35,6 @@ fn cache_path() -> PathBuf {
 const W_MIN: usize = 1;
 const W_MAX: usize = 10;
 const MIN_OVERLAP_L2: u32 = 0;
-const MIN_OVERLAP_L5: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Strutture dati
@@ -288,13 +287,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .or_default()
             .push(l1);
 
-        // L5: DTW con guida ordered-sparse
-        let l5 = match aligner.align_with_ordered_sparse(
+        // L5: DTW con guida ordered-sparse (guardiano normalizzato, default)
+        let l5 = match aligner.align_with_ordered_sparse_default(
             &pair.seq_a,
             &pair.seq_b,
             &pair.sparse_a,
             &pair.sparse_b,
-            MIN_OVERLAP_L5,
             W_MIN,
             W_MAX,
         ) {

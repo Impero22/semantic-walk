@@ -1,5 +1,13 @@
 use crate::ordered_sparse::OrderedSparseSequence;
 
+/// Soglia Jaccard predefinita del guardiano (Strato 1).
+///
+/// 0.65 = livello L8 dell'ablazione: massimizza la separazione semantica
+/// senza sacrificare campioni (L9 a 0.80 crolla a 0.5000 con il 31.6% di
+/// campioni scartati). Valore validato sull'ablazione L6-L9; l'invarianza
+/// di scala su Dataset B è in fase di verifica.
+pub const MIN_JACCARD_DEFAULT: f32 = 0.65;
+
 /// Un passo cinematico del cammino di allineamento.
 ///
 /// Misura la dinamica locale del disallineamento tra i punti allineati:
@@ -256,6 +264,32 @@ impl KinematicAligner {
             w_min,
             w_max,
             |a, b| a.global_jaccard(b) < min_jaccard,
+        )
+    }
+
+    /// Variante con soglia Jaccard predefinita (Strato 1, default).
+    ///
+    /// Usa [`MIN_JACCARD_DEFAULT`] (0.65, livello L8) come soglia di pruning
+    /// normalizzata: il punto di equilibrio tra selettività e preservazione
+    /// del campione emerso dall'ablazione L6-L9 (L9 a 0.80 crolla a 0.5000
+    /// perché scarta il 31.6% dei campioni e distorce la distribuzione).
+    pub fn align_with_ordered_sparse_default<T: AsRef<[f64]>>(
+        &self,
+        seq_a: &[T],
+        seq_b: &[T],
+        sparse_a: &OrderedSparseSequence,
+        sparse_b: &OrderedSparseSequence,
+        w_min: usize,
+        w_max: usize,
+    ) -> Result<Option<TrajectoryAlignment>, &'static str> {
+        self.align_with_ordered_sparse_impl(
+            seq_a,
+            seq_b,
+            sparse_a,
+            sparse_b,
+            w_min,
+            w_max,
+            |a, b| a.global_jaccard(b) < MIN_JACCARD_DEFAULT,
         )
     }
 
