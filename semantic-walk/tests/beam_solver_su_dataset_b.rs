@@ -37,6 +37,7 @@ use zip::ZipArchive;
 use semantic_combiner::FactId;
 use semantic_graph::{Edge, Graph, GraphConfig, NodeId};
 use semantic_walk::solver::{BeamSolver, GraphAdapter, SolverConfig};
+use semantic_walk::state::{cosine, derive_state};
 use semantic_walk::KinematicState;
 
 // ---------------------------------------------------------------------------
@@ -95,40 +96,6 @@ fn read_dense(
         rows.push(row);
     }
     Ok(rows)
-}
-
-fn frame_norm(v: &[f64]) -> f32 {
-    let s: f64 = v.iter().map(|x| x * x).sum();
-    s.sqrt() as f32
-}
-
-fn cosine(a: &[f64], b: &[f64]) -> f32 {
-    let na = frame_norm(a) as f64;
-    let nb = frame_norm(b) as f64;
-    if na == 0.0 || nb == 0.0 {
-        return 0.0;
-    }
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    (dot / (na * nb)) as f32
-}
-
-fn angle_between(a: &[f64], b: &[f64]) -> f32 {
-    let c = cosine(a, b).clamp(-1.0, 1.0);
-    c.acos()
-}
-
-/// Deriva lo stato cinematico di un frame dalla geometria locale
-/// (convenzione del benchmark di throughput).
-fn derive_state(traj: &[Vec<f64>], i: usize, frame: &[f64]) -> KinematicState {
-    let norm = frame_norm(frame);
-    let prev_norm = if i > 0 { frame_norm(&traj[i - 1]) } else { norm };
-    let acc = norm - prev_norm;
-    let curvature = if i > 0 {
-        angle_between(&traj[i - 1], frame)
-    } else {
-        0.0
-    };
-    KinematicState { velocity: norm, acceleration: acc, curvature }
 }
 
 // ---------------------------------------------------------------------------
