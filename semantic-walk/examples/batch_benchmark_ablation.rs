@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use npyz::NpyFile;
 use serde::Deserialize;
@@ -16,47 +17,39 @@ use semantic_walk::ordered_sparse::OrderedSparseSequence;
 // Configurazione
 // ---------------------------------------------------------------------------
 
+static DATASET: OnceLock<String> = OnceLock::new();
+
+fn dataset_name() -> &'static str {
+    DATASET.get_or_init(|| "dataset_a".to_string()).as_str()
+}
+
 fn data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data/dataset_a")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../data")
+        .join(dataset_name())
 }
 
 fn index_path() -> PathBuf {
-    data_dir().join("dataset_a_index.json")
+    data_dir().join(format!("{}_index.json", dataset_name()))
 }
 
 fn cache_path() -> PathBuf {
-    data_dir().join("dataset_a_cache.npz")
+    let name = if dataset_name() == "dataset_b" {
+        "dataset_b_cache_fixed.npz"
+    } else {
+        &format!("{}_cache.npz", dataset_name())
+    };
+    data_dir().join(name)
 }
 
-// Parametri del DTW (concordati con Camillo):
-//   w_min = 1, w_max = 10  (banda Sakoe-Chiba dinamica)
 const W_MIN: usize = 1;
 const W_MAX: usize = 10;
 
-// Livelli di ablazione (soglie di sovrapposizione sparse progressive).
-//   L1 = denso puro (MaxSim bidirezionale mediato) — baseline, nessuna guida
-//   L2 = DTW guidato ordered-sparse, MIN_OVERLAP = 0
-//   L3 = DTW guidato ordered-sparse, MIN_OVERLAP = 2
-//   L4 = DTW guidato ordered-sparse, MIN_OVERLAP = 4
-//   L5 = DTW guidato ordered-sparse, MIN_OVERLAP = 5
-// La progressione da 0 a 5 a passi di 2 (per L2-L4) mostra l'impatto
-// progressivo del vincolo ordered-sparse rispetto al baseline denso L1.
 const MIN_OVERLAP_L2: u32 = 0;
 const MIN_OVERLAP_L3: u32 = 2;
 const MIN_OVERLAP_L4: u32 = 4;
 const MIN_OVERLAP_L5: u32 = 5;
 
-// Livelli normalizzati (L6-L9): soglie Jaccard sul Bloom in [0.0, 1.0].
-// Calibrate sulla distribuzione empirica del Dataset A (check_overlap.rs):
-//   causality   J ∈ [0.794, 1.000] med 0.889
-//   negation    J ∈ [0.709, 0.970] med 0.845
-//   role        J ∈ [0.674, 1.000] med 0.837
-//   synonymy    J ∈ [0.342, 0.658] med 0.531   ← il gruppo divergente
-// La soglia discriminante naturale è J ≈ 0.65: sotto, coppie divergenti.
-//   L6 = 0.00 (nessun pruning — baseline normalizzata)
-//   L7 = 0.50 (pruning permissivo: taglia solo le coppie più divergenti)
-//   L8 = 0.65 (soglia discriminante naturale)
-//   L9 = 0.80 (pruning stretto: tiene solo coppie molto simili)
 const MIN_JACCARD_L6: f32 = 0.00;
 const MIN_JACCARD_L7: f32 = 0.50;
 const MIN_JACCARD_L8: f32 = 0.65;
@@ -99,6 +92,47 @@ fn read_npz_array<T: npyz::Deserialize>(
     Ok(data)
 }
 
+/// Legge gli ID sparse gestendo i vari formati interi di NumPy (i32, i64, i16, i8).
+///
+/// Nota: i tipi interi di NumPy sono a byte: `<i4` = int32, `<i8` = int64, `<i2` = int16,
+/// `<i1` = int8. Il Dataset A serializza gli ID come int32 (`<i4`), il Dataset B come
+/// int64 (`<i8`). Leggiamo i bytes grezzi una sola volta e proviamo i tipi su un `Cursor`
+/// indipendente per ogni tentativo — così il fallback non viene corrotto dal consumo
+/// dello stream del primo tentativo fallito.
+fn read_ids(
+    zip: &mut ZipArchive<BufReader<File>>,
+    name: &str,
+) -> Result<Vec<i32>, Box<dyn std::error::Error>> {
+    use std::io::Cursor;
+    let fname = npyz::npz::file_name_from_array_name(name);
+    let file = zip.by_name(&fname)?;
+    let mut bytes = Vec::new();
+    {
+        use std::io::Read;
+        let mut f = file;
+        f.read_to_end(&mut bytes)?;
+    }
+
+    // Prova i tipi su un Cursor indipendente per ciascun tentativo.
+    let try_read = |bytes: &[u8]| -> Result<Vec<i32>, Box<dyn std::error::Error>> {
+        if let Ok(v) = NpyFile::new(Cursor::new(bytes)).and_then(|r| r.into_vec::<i32>()) {
+            return Ok(v);
+        }
+        if let Ok(v) = NpyFile::new(Cursor::new(bytes)).and_then(|r| r.into_vec::<i64>()) {
+            return Ok(v.into_iter().map(|x| x as i32).collect());
+        }
+        if let Ok(v) = NpyFile::new(Cursor::new(bytes)).and_then(|r| r.into_vec::<i16>()) {
+            return Ok(v.into_iter().map(|x| x as i32).collect());
+        }
+        if let Ok(v) = NpyFile::new(Cursor::new(bytes)).and_then(|r| r.into_vec::<i8>()) {
+            return Ok(v.into_iter().map(|x| x as i32).collect());
+        }
+        Err(format!("Formato ID non supportato per il campo {}", name).into())
+    };
+
+    try_read(&bytes)
+}
+
 fn read_dense(
     zip: &mut ZipArchive<BufReader<File>>,
     name: &str,
@@ -123,8 +157,6 @@ fn read_dense(
     Ok(rows)
 }
 
-/// Invariante di biiezione posizionale: un frame per posizione, senza
-/// filtrare i soppressi (weight == 0.0).
 fn build_sparse(ids: &[i32], weights: &[f32]) -> Result<OrderedSparseSequence, &'static str> {
     if ids.len() != weights.len() {
         return Err("ids e weights di lunghezza diversa");
@@ -145,9 +177,9 @@ fn load_pair(
     let seq_a = read_dense(zip, &format!("{}_a_dense", pair_id))?;
     let seq_b = read_dense(zip, &format!("{}_b_dense", pair_id))?;
 
-    let ids_a: Vec<i32> = read_npz_array(zip, &format!("{}_a_ids", pair_id))?;
+    let ids_a = read_ids(zip, &format!("{}_a_ids", pair_id))?;
     let weights_a: Vec<f32> = read_npz_array(zip, &format!("{}_a_weights", pair_id))?;
-    let ids_b: Vec<i32> = read_npz_array(zip, &format!("{}_b_ids", pair_id))?;
+    let ids_b = read_ids(zip, &format!("{}_b_ids", pair_id))?;
     let weights_b: Vec<f32> = read_npz_array(zip, &format!("{}_b_weights", pair_id))?;
 
     let sparse_a = build_sparse(&ids_a, &weights_a)?;
@@ -162,10 +194,6 @@ fn load_pair(
         sparse_b,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Baseline L1: ColBERT MaxSim bidirezionale mediato
-// ---------------------------------------------------------------------------
 
 fn compute_l1_maxsim(a: &[Vec<f64>], b: &[Vec<f64>]) -> f64 {
     let ta = a.len();
@@ -205,10 +233,6 @@ fn compute_l1_maxsim(a: &[Vec<f64>], b: &[Vec<f64>]) -> f64 {
     (maxsim_a_b + maxsim_b_a) / 2.0
 }
 
-// ---------------------------------------------------------------------------
-// AUC-ROC
-// ---------------------------------------------------------------------------
-
 fn compute_auc(pos_scores: &[f64], neg_scores: &[f64]) -> f64 {
     if pos_scores.is_empty() || neg_scores.is_empty() {
         return 0.5;
@@ -245,11 +269,17 @@ fn compute_auc(pos_scores: &[f64], neg_scores: &[f64]) -> f64 {
     (rank_sum - (num_pos * (num_pos + 1.0) / 2.0)) / (num_pos * num_neg)
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(ds) = args.get(1) {
+        if ds == "dataset_a" || ds == "dataset_b" {
+            let _ = DATASET.set(ds.clone());
+        } else {
+            eprintln!("[ABLATION] Dataset sconosciuto: {ds} (atteso dataset_a|dataset_b)");
+            std::process::exit(1);
+        }
+    }
+
     let index_path = index_path();
     let cache_path = cache_path();
 
@@ -266,8 +296,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let aligner = KinematicAligner::new(W_MAX);
 
-    // Per ogni categoria, per ogni livello: vettore di punteggi.
-    // livelli: 1 (denso puro), 2..=5 (DTW guidato con soglia crescente)
     let mut scores: HashMap<String, HashMap<u32, Vec<f64>>> = HashMap::new();
     let mut pairs_processed = 0usize;
     let mut errors = 0usize;
@@ -282,7 +310,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // L1: denso puro
         let l1 = compute_l1_maxsim(&pair.seq_a, &pair.seq_b);
         scores
             .entry(pair.category.clone())
@@ -291,7 +318,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .or_default()
             .push(l1);
 
-        // L2..L5: DTW guidato con soglia progressiva (bit assoluti)
         for (level, min_overlap) in [
             (2u32, MIN_OVERLAP_L2),
             (3u32, MIN_OVERLAP_L3),
@@ -308,7 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 W_MAX,
             ) {
                 Ok(Some(align)) => align.normalized_score,
-                Ok(None) => f64::NAN, // ritiro geometrico (verdict)
+                Ok(None) => f64::NAN,
                 Err(e) => {
                     eprintln!(
                         "[ABLATION] Errore DTW L{} {} ({}): {}",
@@ -326,7 +352,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .push(score);
         }
 
-        // L6..L9: DTW guidato con soglia Jaccard normalizzata
         for (level, min_jaccard) in [
             (6u32, MIN_JACCARD_L6),
             (7u32, MIN_JACCARD_L7),
@@ -343,7 +368,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 W_MAX,
             ) {
                 Ok(Some(align)) => align.normalized_score,
-                Ok(None) => f64::NAN, // ritiro geometrico (verdict)
+                Ok(None) => f64::NAN,
                 Err(e) => {
                     eprintln!(
                         "[ABLATION] Errore DTW L{} {} ({}): {}",
@@ -369,7 +394,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n[ABLATION] Coppie processate: {}, errori: {}", pairs_processed, errors);
 
-    // Report: punteggi medi per categoria × livello
     let mut cats: Vec<&String> = scores.keys().collect();
     cats.sort();
     println!("\n=== Punteggi medi per categoria × livello ===");
@@ -396,7 +420,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // AUC per categoria × livello (categoria vs tutte le altre)
     println!("\n=== AUC-ROC per categoria × livello ===");
     for cat in &cats {
         let by_level = scores.get(*cat).unwrap();
@@ -427,40 +450,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // AUC binaria tra coppie di categorie × livello
     println!("\n=== AUC binaria tra coppie di categorie × livello ===");
-    let cat_pairs = [
-        ("role_reversal", "synonymy_control"),
-        ("role_reversal", "negation_flip"),
-        ("synonymy_control", "negation_flip"),
-        ("causality", "synonymy_control"),
-        ("causality", "negation_flip"),
-        ("causality", "role_reversal"),
-    ];
-    for (a, b) in cat_pairs {
-        let by_a = scores.get(a).unwrap();
-        let by_b = scores.get(b).unwrap();
-        let mut levels: Vec<&u32> = by_a.keys().collect();
-        levels.sort();
-        for level in levels {
-            let sa: Vec<f64> = by_a
-                .get(level)
-                .unwrap()
-                .iter()
-                .filter(|&&x| !x.is_nan())
-                .cloned()
-                .collect();
-            let sb: Vec<f64> = by_b
-                .get(level)
-                .unwrap()
-                .iter()
-                .filter(|&&x| !x.is_nan())
-                .cloned()
-                .collect();
-            let auc_ab = compute_auc(&sa, &sb);
-            let auc_ba = compute_auc(&sb, &sa);
-            let best = auc_ab.max(auc_ba);
-            println!("[{} vs {}] L{} AUC = {:.4}", a, b, level, best);
+    // Categorie reali presenti nel dataset (dinamiche — il Dataset A usa nomi diversi
+    // dal Dataset B, quindi non possiamo hardcodarle).
+    for i in 0..cats.len() {
+        for j in (i + 1)..cats.len() {
+            let a = cats[i];
+            let b = cats[j];
+            let by_a = scores.get(a).unwrap();
+            let by_b = scores.get(b).unwrap();
+            let mut levels: Vec<&u32> = by_a.keys().collect();
+            levels.sort();
+            for level in levels {
+                let sa: Vec<f64> = by_a
+                    .get(level)
+                    .unwrap()
+                    .iter()
+                    .filter(|&&x| !x.is_nan())
+                    .cloned()
+                    .collect();
+                let sb: Vec<f64> = by_b
+                    .get(level)
+                    .unwrap()
+                    .iter()
+                    .filter(|&&x| !x.is_nan())
+                    .cloned()
+                    .collect();
+                let auc_ab = compute_auc(&sa, &sb);
+                let auc_ba = compute_auc(&sb, &sa);
+                let best = auc_ab.max(auc_ba);
+                println!("[{} vs {}] L{} AUC = {:.4}", a, b, level, best);
+            }
         }
     }
 
