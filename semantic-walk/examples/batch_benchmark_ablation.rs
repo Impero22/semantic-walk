@@ -46,6 +46,22 @@ const MIN_OVERLAP_L3: u32 = 2;
 const MIN_OVERLAP_L4: u32 = 4;
 const MIN_OVERLAP_L5: u32 = 5;
 
+// Livelli normalizzati (L6-L9): soglie Jaccard sul Bloom in [0.0, 1.0].
+// Calibrate sulla distribuzione empirica del Dataset A (check_overlap.rs):
+//   causality   J ∈ [0.794, 1.000] med 0.889
+//   negation    J ∈ [0.709, 0.970] med 0.845
+//   role        J ∈ [0.674, 1.000] med 0.837
+//   synonymy    J ∈ [0.342, 0.658] med 0.531   ← il gruppo divergente
+// La soglia discriminante naturale è J ≈ 0.65: sotto, coppie divergenti.
+//   L6 = 0.00 (nessun pruning — baseline normalizzata)
+//   L7 = 0.50 (pruning permissivo: taglia solo le coppie più divergenti)
+//   L8 = 0.65 (soglia discriminante naturale)
+//   L9 = 0.80 (pruning stretto: tiene solo coppie molto simili)
+const MIN_JACCARD_L6: f32 = 0.00;
+const MIN_JACCARD_L7: f32 = 0.50;
+const MIN_JACCARD_L8: f32 = 0.65;
+const MIN_JACCARD_L9: f32 = 0.80;
+
 // ---------------------------------------------------------------------------
 // Strutture dati
 // ---------------------------------------------------------------------------
@@ -275,7 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .or_default()
             .push(l1);
 
-        // L2..L5: DTW guidato con soglia progressiva
+        // L2..L5: DTW guidato con soglia progressiva (bit assoluti)
         for (level, min_overlap) in [
             (2u32, MIN_OVERLAP_L2),
             (3u32, MIN_OVERLAP_L3),
@@ -288,6 +304,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &pair.sparse_a,
                 &pair.sparse_b,
                 min_overlap,
+                W_MIN,
+                W_MAX,
+            ) {
+                Ok(Some(align)) => align.normalized_score,
+                Ok(None) => f64::NAN, // ritiro geometrico (verdict)
+                Err(e) => {
+                    eprintln!(
+                        "[ABLATION] Errore DTW L{} {} ({}): {}",
+                        level, pair_id, pair.category, e
+                    );
+                    errors += 1;
+                    continue;
+                }
+            };
+            scores
+                .entry(pair.category.clone())
+                .or_default()
+                .entry(level)
+                .or_default()
+                .push(score);
+        }
+
+        // L6..L9: DTW guidato con soglia Jaccard normalizzata
+        for (level, min_jaccard) in [
+            (6u32, MIN_JACCARD_L6),
+            (7u32, MIN_JACCARD_L7),
+            (8u32, MIN_JACCARD_L8),
+            (9u32, MIN_JACCARD_L9),
+        ] {
+            let score = match aligner.align_with_ordered_sparse_norm(
+                &pair.seq_a,
+                &pair.seq_b,
+                &pair.sparse_a,
+                &pair.sparse_b,
+                min_jaccard,
                 W_MIN,
                 W_MAX,
             ) {

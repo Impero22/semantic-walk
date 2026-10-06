@@ -253,6 +253,35 @@ impl OrderedSparseSequence {
         a.count_ones() + b.count_ones()
     }
 
+    /// **Strato 1b — Jaccard normalizzato sul Bloom (O(1))**.
+    ///
+    /// Versione normalizzata del guardiano: `popcount(A & B) / popcount(A | B)`
+    /// in `[0.0, 1.0]`. A differenza di `global_overlap` (bit assoluti, che
+    /// satura con sequenze lunghe), questa metrica è robusta alla lunghezza
+    /// delle traiettorie e fornisce una soglia interpretabile come frazione
+    /// di presenza condivisa.
+    ///
+    /// Caso degenere: se l'unione delle firme è vuota (nessun token emesso in
+    /// nessuna delle due sequenze), ritorna `0.0` — coerentemente col
+    /// contratto dei soppressi, non c'è presenza comune da allineare.
+    pub fn global_jaccard(&self, other: &Self) -> f32 {
+        let inter = {
+            let a = self.global_signature[0] & other.global_signature[0];
+            let b = self.global_signature[1] & other.global_signature[1];
+            (a.count_ones() + b.count_ones()) as f32
+        };
+        let union = {
+            let a = self.global_signature[0] | other.global_signature[0];
+            let b = self.global_signature[1] | other.global_signature[1];
+            (a.count_ones() + b.count_ones()) as f32
+        };
+        if union == 0.0 {
+            0.0
+        } else {
+            inter / union
+        }
+    }
+
     /// **Strato 2 — Overlap posizionale**.
     ///
     /// Confronta i sottoinsiemi di token attivi alla posizione `i` delle due
@@ -444,6 +473,59 @@ mod tests {
         // Verifichiamo la proprietà debole: l'overlap è un valore valido 0..=128.
         let o = a.global_overlap(&b);
         assert!(o <= 128);
+    }
+
+    #[test]
+    fn test_global_jaccard_identiche_uno() {
+        let a = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, 0.5), (2, 0.3)],
+            vec![(3, 0.9)],
+        ]))
+        .unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![
+            vec![(1, 0.5), (2, 0.3)],
+            vec![(3, 0.9)],
+        ]))
+        .unwrap();
+        // Stesse firme: intersezione == unione → Jaccard = 1.0.
+        let j = a.global_jaccard(&b);
+        assert!((j - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_global_jaccard_in_range() {
+        // Il Jaccard normalizzato è sempre in [0.0, 1.0], anche tra
+        // sequenze diverse che condividono alcuni bit per collisione.
+        let a = OrderedSparseSequence::from_frames(&frames(vec![vec![(1, 0.5)]])).unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(vec![vec![(2, 0.5)]])).unwrap();
+        let j = a.global_jaccard(&b);
+        assert!(j >= 0.0 && j <= 1.0, "jaccard fuori range: {j}");
+    }
+
+    #[test]
+    fn test_global_jaccard_robusto_alla_lunghezza() {
+        // Sequenze lunghe (molti token) non devono saturare il Jaccard:
+        // resta una frazione, non un conteggio assoluto.
+        let mut a_frames: Vec<Vec<(u32, f32)>> = Vec::new();
+        let mut b_frames: Vec<Vec<(u32, f32)>> = Vec::new();
+        for i in 0..20u32 {
+            // A condivide solo la metà dei token con B.
+            if i % 2 == 0 {
+                a_frames.push(vec![(i, 0.5)]);
+                b_frames.push(vec![(i, 0.5)]);
+            } else {
+                a_frames.push(vec![(i + 1000, 0.5)]);
+                b_frames.push(vec![(i + 2000, 0.5)]);
+            }
+        }
+        let a = OrderedSparseSequence::from_frames(&frames(a_frames)).unwrap();
+        let b = OrderedSparseSequence::from_frames(&frames(b_frames)).unwrap();
+        // Metà token condivisi → Jaccard attorno a 0.5 (non saturato a 1.0).
+        let j = a.global_jaccard(&b);
+        assert!(
+            j > 0.3 && j < 0.7,
+            "jaccard atteso ~0.5 per metà token condivisi, ottenuto {j}"
+        );
     }
 
     #[test]

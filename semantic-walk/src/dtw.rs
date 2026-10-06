@@ -211,6 +211,7 @@ impl KinematicAligner {
     }
 
     /// **Allineamento DTW con guida ordered-sparse (due strati)**.
+    /// Variante con soglia assoluta (bit della firma Bloom, 0..=128).
     pub fn align_with_ordered_sparse<T: AsRef<[f64]>>(
         &self,
         seq_a: &[T],
@@ -220,6 +221,62 @@ impl KinematicAligner {
         min_overlap_threshold: u32,
         w_min: usize,
         w_max: usize,
+    ) -> Result<Option<TrajectoryAlignment>, &'static str> {
+        self.align_with_ordered_sparse_impl(
+            seq_a,
+            seq_b,
+            sparse_a,
+            sparse_b,
+            w_min,
+            w_max,
+            |a, b| a.global_overlap(b) < min_overlap_threshold,
+        )
+    }
+
+    /// Variante con soglia normalizzata (Jaccard sul Bloom, [0.0, 1.0]).
+    ///
+    /// Robusta alla lunghezza delle sequenze: a differenza dei bit assoluti
+    /// (che saturano con traiettorie lunghe), la frazione di presenza
+    /// condivisa resta interpretabile indipendentemente da `n` e `m`.
+    pub fn align_with_ordered_sparse_norm<T: AsRef<[f64]>>(
+        &self,
+        seq_a: &[T],
+        seq_b: &[T],
+        sparse_a: &OrderedSparseSequence,
+        sparse_b: &OrderedSparseSequence,
+        min_jaccard: f32,
+        w_min: usize,
+        w_max: usize,
+    ) -> Result<Option<TrajectoryAlignment>, &'static str> {
+        self.align_with_ordered_sparse_impl(
+            seq_a,
+            seq_b,
+            sparse_a,
+            sparse_b,
+            w_min,
+            w_max,
+            |a, b| a.global_jaccard(b) < min_jaccard,
+        )
+    }
+
+    /// Core condiviso dei due allineamenti guidati ordered-sparse.
+    ///
+    /// Il guardiano (Strato 1) è parametrizzato da un predicato di pruning:
+    /// `true` = le due sequenze divergono topologicamente, il DTW non va
+    /// calcolato. Le varianti pubbliche differiscono solo nella metrica
+    /// (bit assoluti vs Jaccard normalizzato).
+    fn align_with_ordered_sparse_impl<T: AsRef<[f64]>, F: Fn(
+        &OrderedSparseSequence,
+        &OrderedSparseSequence,
+    ) -> bool>(
+        &self,
+        seq_a: &[T],
+        seq_b: &[T],
+        sparse_a: &OrderedSparseSequence,
+        sparse_b: &OrderedSparseSequence,
+        w_min: usize,
+        w_max: usize,
+        guard_prunes: F,
     ) -> Result<Option<TrajectoryAlignment>, &'static str> {
         let n = seq_a.len();
         let m = seq_b.len();
@@ -240,8 +297,7 @@ impl KinematicAligner {
 
         // Strato 1 — Guardiano O(1): pruning topologico prima di allocare
         // la matrice di allineamento.
-        let overlap = sparse_a.global_overlap(sparse_b);
-        if overlap < min_overlap_threshold {
+        if guard_prunes(sparse_a, sparse_b) {
             return Ok(None);
         }
 
