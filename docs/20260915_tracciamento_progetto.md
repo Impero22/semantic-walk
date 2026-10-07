@@ -898,6 +898,54 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 - Build pulito, zero warning (rimosso import inutilizzato `PRUNE_EPSILON`).
 - Comunicato a Camillo; prossimo passo concordato: adapter concreto per `ProximityGraph` sul Dataset B.
 
+## 03/10/26 23:41 — Graph adapter: ponte dal grafo di prossimità al beam solver (fa68627)
+
+**Idee di partenza:**
+- Camillo ha committato il beam solver (825efeb) disaccoppiato dal grafo via trait `GraphAdapter`. Il passo successivo concordato era un adapter concreto per il `ProximityGraph` sul Dataset B.
+- Convenzione concordata: lo stato intrinseco del nodo = media delle sonde dei suoi archi, precalcolata una volta sola in `new` (niente ricalcolo a ogni `neighbors()`).
+
+**Obiettivi:**
+- Aggiungere `edge_between` a semantic-graph (ricerca binaria sull'arco ordinato, `Option<Edge>`).
+- Creare `graph_adapter.rs` come ponte dal grafo di prossimità al beam solver.
+- Verificare l'integrità del workspace (test verdi, zero warning).
+
+**Metodi utilizzati:**
+- `edge_between`: gli archi sono ordinati per coppia ordinata `(from, to)` con `from < to`, quindi ricerca binaria.
+- `graph_adapter.rs`: stato intrinseco = media delle sonde degli archi, precalcolata in `new`.
+
+**Risultati attesi:**
+- Adapter funzionante, 3 test verdi, workspace pulito.
+
+**Risultati ottenuti:**
+- Commit `fa68627` su main: 5 file, 200 insertions (edge_between, dipendenza semantic-graph, graph_adapter.rs, registro modulo).
+- 3 test nuovi verdi; workspace a 231 test, zero warning.
+- **PUNTO DI DESIGN APERTO (sul tavolo con Camillo):** doppia filosofia dello stato. Il benchmark `bench_frontier_throughput` costruisce il `KinematicState` con `derive_state` (geometria locale del frame: norma, accelerazione, angolo), mentre l'adapter usa la media delle sonde sugli archi. Due filosofie diverse per lo stesso nodo — il `KinematicState` che alimenta il beam cambia a seconda di quale usiamo. Scelta di contratto, NON committata sul remoto finché non decidiamo insieme. Il commit locale è marcato "in attesa di decisione".
+- Nota: il test `beam_solver_su_dataset_b` proposto da Camillo (Opzione A, rilassare le asserzioni, nodo della componente principale) NON è ancora scritto — attende la decisione sulla doppia filosofia dello stato, perché il grafo su cui il solver deve camminare (frame vs fatti) cambia l'implementazione del test.
+
+## 06/10/26 21:22 — Fix flake beam_solver_su_dataset_b (eb654af)
+
+**Idee di partenza:**
+- Il test `beam_solver_su_dataset_b` era instabile (flake): a volte passava, a volte il `debug_assert!` del solver scattava.
+- Camillo ha diagnosticato due cause: (1) non-determinismo dell'iterazione su `HashMap` (hashing random di Rust a ogni esecuzione) che rendeva non riproducibile l'ordine di espansione dei rami; (2) `min_step` cablato a 0.0005 troppo alto rispetto al minimo inerziale reale.
+
+**Obiettivi:**
+- Rendere il test deterministico (ordinamento stabile dei vicini).
+- Calibrare `min_step` dinamicamente dal grafo reale (misurazione empirica, non costante arbitraria).
+
+**Metodi utilizzati:**
+- `sort_unstable()` sulle liste di adiacenza in `FrameAdapter::new`.
+- `measure_min_step()` sul `FrameAdapter`: misura il minimo incremento inerziale reale sugli archi con `derive_state` (la convenzione del test, non la media sonde).
+
+**Risultati attesi:**
+- Test stabile in debug mode (il `debug_assert!` scatta solo in debug), 3 run consecutive verdi, nessuna regressione nel workspace.
+
+**Risultati ottenuti:**
+- Minimo inerziale reale con `derive_state`: **0.0000154** (non 0.0002 come col ProximityAdapter).
+- 76 archi sotto la soglia `0.00049` del `debug_assert!` con `min_step=0.0005` → causa del panic.
+- Commit `eb654af`: ordinamento deterministico + `measure_min_step` dinamica.
+- 3 run consecutive verdi (4.84-4.86s), workspace intero 28/28 gruppi ok, zero failure.
+- **Lezione di metodo** (Notepad 81): il bound deve stare dove il fenomeno è, non sotto — la misurazione empirica del minimo reale sostituisce la costante cablata.
+
 ## 06/10/26 22:16 — Ablazione L1-L5: difetto di scala del guardiano (Strato 1)
 
 **Idee di partenza:**
