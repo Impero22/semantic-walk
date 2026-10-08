@@ -975,3 +975,38 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 3. **Cambiare metrica** — Jaccard posizionale anche nello Strato 1, o conteggio token emessi condivisi.
 
 Coerente con la lezione SPARSE_EPSILON: la soglia deve stare dove il fenomeno è, non sotto.
+
+## 08/10/26 — Collasso FrameAdapter: decisione Strada 1 (Complementarità)
+
+**Sintomo:**
+`bench_adapter_comparison` (Dataset B): FrameAdapter produce **1 cammino per radice**, ProximityAdapter ne produce **24-81**. Jaccard tra i due insiemi = 0.0, Spearman = 0.0 (ortogonali).
+
+**Diagnosi (verificata su codice reale):**
+- I frame densi del Dataset B hanno **norma esattamente 1.0** (proprietà dataset/embedder).
+- `derive_state(traj, last, &traj[last])`: velocity = ||frame|| = 1.0 per tutti; acceleration = 1.0−1.0 ≈ 0.0 per tutti; resta solo la **curvatura** come sonda viva.
+- Nell'azione inerziale `S = m·c²·(γ−1) + β·Δa² + γ·|Δk|`, con dv≈0 e da≈0 sopravvive solo `γ·|Δk|`, range ~0.15 → il beam non distingue i cammini → collasso a 1.
+- Il ProximityAdapter (media sonde archi) produce stati ben distinti (v~0.96, a~1.0, k~0.59) → distingue 24 cammini.
+
+**Causa strutturale:** non è un bug del FrameAdapter — è la combinazione di frame a norma costante (che rende velocity/acceleration informazione morta) e della convenzione canonica `derive_state` (06/10), che su questo dataset si riduce a una sola sonda viva.
+
+**Decisione (congelata da Camillo via 1st_Coder):** **Strada 1 — Complementarità.**
+Le due convenzioni misurano **dimensioni diverse** e vanno trattate come **complementari**, non in competizione:
+- FrameAdapter = sonda **curvatura** (geometria locale del frame).
+- ProximityAdapter = sonda **relazionale** (densità di contesto, media sonde archi).
+
+**Il dato chiave:** se le due sonde producessero gli stessi cammini, una sarebbe ridondante. La divergenza (Jaccard 0.0, Spearman 0.0) è la **prova della complementarità**, non un fallimento.
+
+**Implicazioni architetturali:**
+1. **Core intatto**: `state.rs` e la formula dell'azione inerziale restano invariati — la fisica non si tocca, cambia solo la sonda.
+2. **Strada 2 (auto-MaxSim) scartata**: sarebbe una pezza per forzare una convergenza artificiale tra metriche differenti.
+3. **API pubblica**: entrambe le sonde integrate come **strategie esplicite** (`ProbeAdapter::Curvature` e `ProbeAdapter::Relational`). Lo scheletro delle API pubbliche lo stende **Camillo**.
+4. **Il benchmark va riletto** come misura di complementarità, non di convergenza.
+
+**Lezione:** la tesi del paper — *la ricetta non è la lista degli ingredienti, è come si combinano* — si applica anche qui. Come denso e ordinato nel resto dell'architettura, geometria locale e struttura relazionale coprono territori diversi, non competono.
+
+**Commit:**
+- `9f1269a` (Camillo): diagnosi collasso FrameAdapter.
+- `f4cb56b` (Iris): decisione Strada 1 — documentazione complementarità.
+- `dd950a4` (Iris): benchmark comparativo FrameAdapter vs ProximityAdapter + rimozione debug temporanei (spostati in `/home/iris/backup_debug_collasso/`).
+
+**Aperto:** scheletro API pubbliche `ProbeAdapter` (stende Camillo). Push GitHub in attesa del token di Camillo (remote HTTPS Impero22/semantic-walk).
