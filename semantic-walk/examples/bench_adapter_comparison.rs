@@ -260,6 +260,47 @@ fn spearman(a: &[f32], b: &[f32]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
+// Minimo passo inerziale empirico
+// ---------------------------------------------------------------------------
+
+/// Misura il minimo valore **positivo** di `inertial_action` raggiungibile
+/// dal FrameAdapter su tutte le coppie (nodo, vicino) del grafo.
+///
+/// La lezione del collasso FrameAdapter (09/10): il `min_step` cablato a
+/// 0.01 era mille volte più grande del minimo inerziale reale (~0.000015),
+/// quindi il solver scartava quasi tutti i cammini — il collasso a 1 cammino
+/// per radice sembrava un artefatto della potatura F6 ma era la soglia a
+/// farlo. Il minimo va misurato dove il fenomeno è, non assunto a priori.
+///
+/// Restituisce il minimo valore positivo osservato, oppure il default del
+/// solver (`0.002`) se nessuna coppia produce un'azione finita positiva.
+fn misura_min_step_empirico(
+    adapter: &FrameAdapter,
+    radici: &[FactId],
+    beta: f32,
+    gamma: f32,
+    c_sem: f32,
+    m_sem: f32,
+) -> f32 {
+    let mut min_pos = f32::INFINITY;
+    for &root in radici {
+        let root_state = KinematicState::default();
+        let vicini = adapter.neighbors(root);
+        for (_, stato_vicino) in vicini {
+            let action = root_state.inertial_action(&stato_vicino, beta, gamma, c_sem, m_sem);
+            if action.is_finite() && action > 0.0 && action < min_pos {
+                min_pos = action;
+            }
+        }
+    }
+    if min_pos.is_finite() {
+        min_pos
+    } else {
+        0.002
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -422,6 +463,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &beta in &betas {
         for &gamma in &gammas {
             for &c_sem in &c_sems {
+                // Minimo passo inerziale empirico: misurare dove il fenomeno è,
+                // non assumere 0.01 (lezione collasso FrameAdapter, 09/10).
+                let min_step = misura_min_step_empirico(
+                    &frame_adapter,
+                    &radici,
+                    beta,
+                    gamma,
+                    c_sem,
+                    1.0,
+                );
                 let config = SolverConfig {
                     horizon: 4,
                     kappa: 2.0,
@@ -429,7 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     gamma,
                     c_sem,
                     m_sem: 1.0,
-                    min_step: 0.01,
+                    min_step,
                 };
                 let solver_f = BeamSolver::new(frame_adapter.clone(), config.clone());
                 let solver_p = BeamSolver::new(proximity_adapter.clone(), config);
