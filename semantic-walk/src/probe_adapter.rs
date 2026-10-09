@@ -64,6 +64,18 @@ impl ProbeAdapter {
     }
 }
 
+impl From<FrameAdapter> for ProbeAdapter {
+    fn from(a: FrameAdapter) -> Self {
+        ProbeAdapter::Curvature(a)
+    }
+}
+
+impl From<ProximityAdapter> for ProbeAdapter {
+    fn from(a: ProximityAdapter) -> Self {
+        ProbeAdapter::Relational(a)
+    }
+}
+
 impl GraphAdapter for ProbeAdapter {
     fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)> {
         match self {
@@ -127,5 +139,21 @@ mod tests {
         assert_eq!(vicini.len(), 2);
         assert_eq!(vicini[0].0, 2);
         assert_eq!(vicini[0].1.velocity, 0.0);
+    }
+
+    #[test]
+    fn from_adapter_compone_le_strategie() {
+        let mut g = Graph::new(GraphConfig::default());
+        g.nodi = vec![NodeId(1), NodeId(2)];
+        g.archi = vec![arco(1, 2, 0.5, 0.5, 0.5, 0.5)];
+
+        let frame = FrameAdapter::new(g.clone(), HashMap::new());
+        let prox = ProximityAdapter::new(g);
+
+        let cur: ProbeAdapter = frame.into();
+        assert_eq!(cur.kind(), ProbeKind::Curvature);
+
+        let rel: ProbeAdapter = prox.into();
+        assert_eq!(rel.kind(), ProbeKind::Relational);
     }
 }

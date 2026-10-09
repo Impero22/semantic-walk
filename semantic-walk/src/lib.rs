@@ -291,6 +291,8 @@ pub mod frontier;
 
 pub mod solver;
 
+pub use solver::ProbeKind;
+
 pub mod graph_adapter;
 
 pub mod probe_adapter;

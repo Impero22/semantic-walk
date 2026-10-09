@@ -1,6 +1,6 @@
-# Scheletro API pubbliche `ProbeAdapter` — bozza di contratto (10/10/26)
+# Contratto pubblico `ProbeAdapter` — forma definitiva (10/10/26)
 
-> **Stato:** BOZZA — da revisionare da Camillo (richiesta 10/10 01:26).
+> **Stato:** DEFINITIVO — decisioni di Camillo recepite (10/10 01:31).
 > **Base:** Via B consolidata su `4523eb8` (GraphAdapter minimale, ProbeAdapter
 > come unico selettore di strategia).
 > **Contesto:** docs/20261008_collasso_frame_adapter.md, "Aperto: scheletro API
@@ -16,9 +16,9 @@ framework) consumerà per selezionare una delle due dimensioni di osservazione
 del grafo — geometria locale (`Curvature`) o struttura relazionale
 (`Relational`).
 
-Il modulo `probe_adapter.rs` esiste già in forma funzionante (Via B,
-`4523eb8`). Questa bozza ne fissa il **contratto pubblico**: cosa deve
-esporre, cosa resta interno, quali garanzie fornisce.
+Il modulo `probe_adapter.rs` esiste in forma funzionante e il contratto qui
+fissato è quello implementato. Questo documento è il punto di verità del
+contratto: cosa espone, cosa resta interno, quali garanzie fornisce.
 
 ## 2. Principi guida
 
@@ -33,7 +33,7 @@ esporre, cosa resta interno, quali garanzie fornisce.
 4. **Ortogonalità documentata.** Jaccard 0.0 e Spearman 0.0 tra i cammini
    delle due sonde (Dataset B) sono *evidenza di indipendenza*, non anomalia.
 
-## 3. Contratto pubblico proposto
+## 3. Contratto pubblico (definitivo)
 
 ```rust
 /// Le sonde semantiche come strategie esplicite.
@@ -55,12 +55,34 @@ impl ProbeAdapter {
     pub fn kind(&self) -> ProbeKind;
 }
 
+// Composizione da adapter già istanziati a monte.
+impl From<FrameAdapter> for ProbeAdapter;
+impl From<ProximityAdapter> for ProbeAdapter;
+
 // Il selettore è esso stesso un GraphAdapter: il solver lo consuma senza
 // distinzione rispetto a un adapter singolo.
 impl GraphAdapter for ProbeAdapter {
     fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)>;
 }
 ```
+
+### Decisioni di contratto (Camillo, 10/10 01:31)
+
+1. **`ProbeKind` pubblico.** Re-esportato a livello di crate con
+   `pub use solver::ProbeKind;`. Il benchmark e i consumatori devono poter
+   etichettare e filtrare i cammini in base alla sonda utilizzata senza
+   accedere alla struttura interna dei moduli.
+2. **Naming `Curvature`/`Relational`.** Confermato: nel contratto pubblico si
+   descrive la *dimensione semantica misurata*, non la struttura dati
+   sottostante (`Frame`/`Proximity`).
+3. **Costruttori + `From`.** Si mantengono i costruttori espliciti
+   `curvature()`/`relational()`, e si aggiungono `From<FrameAdapter>` e
+   `From<ProximityAdapter>` per massima compositività quando gli adapter sono
+   già istanziati a monte.
+4. **Nessuna serializzazione.** Non si implementa `Serialize`/`Deserialize`
+   su `ProbeAdapter`: le traiettorie e la struttura del grafo gestiscono
+   buffer di memoria significativi; la selezione della strategia resta a
+   livello di codice nell'ambiente di esecuzione.
 
 ### Garanzie del contratto
 
@@ -74,30 +96,23 @@ impl GraphAdapter for ProbeAdapter {
   deterministico. L'ordine dei vicini è lasciato all'implementazione (non
   significativo per la correttezza del beam).
 
-## 4. Domande aperte per la revisione
+## 4. Implementazione
 
-1. **`ProbeKind` pubblico o interno?** Oggi `ProbeKind` vive in `solver.rs`
-   come tipo. Va esposto a livello di crate (`pub use`), o è un dettaglio che
-   il consumatore non deve conoscere? *(Inclinazione: esporlo — il benchmark
-   deve poter etichettare i cammini per sonda.)*
-2. **Naming**: `Curvature`/`Relational` vs `Frame`/`Proximity`. Il primo
-   descrive la *dimensione misurata* (semantica), il secondo l'*adapter*
-   (implementazione). Per il contratto pubblico è più stabile il primo.
-3. **Costruttori vs `From`**: `curvature()`/`relational()` sono sufficienti,
-   o servono `From<FrameAdapter>` / `From<ProximityAdapter>` per composizione
-   da adapter già costruiti?
-4. **Serializzazione**: serve `Serialize`/`Deserialize` per passare la sonda
-   oltre confine di processo (ingresso framework)? O la selezione resta a
-   livello di codice?
+Integrato su base `b018516` (bozza) → `[commit finale]`:
 
-## 5. Criteri di accettazione (per la forma definitiva)
+- `lib.rs`: aggiunto `pub use solver::ProbeKind;`.
+- `probe_adapter.rs`: aggiunte `impl From<FrameAdapter>` e
+  `impl From<ProximityAdapter>`.
+- Test: `kind_dichiara_la_sonda`, `entrambe_le_strategie_espongono_vicini`,
+  `from_adapter_compone_le_strategie` (nuovo) — tutti verdi.
 
-- [ ] `GraphAdapter` resta minimale (solo `neighbors()`) — nessuna regressione.
-- [ ] `ProbeAdapter` è l'unico selettore di strategia pubblico.
-- [ ] Test: `kind_dichiara_la_sonda`, `entrambe_le_strategie_espongono_vicini`
-      (già presenti) + un test che confronta i cammini delle due sonde su un
-      grafo sintetico e ne verifica l'ortogonalità dichiarata.
-- [ ] Workspace verde (semantic_walk 103 + altri crate).
+## 5. Criteri di accettazione (soddisfatti)
+
+- [x] `GraphAdapter` resta minimale (solo `neighbors()`) — nessuna regressione.
+- [x] `ProbeAdapter` è l'unico selettore di strategia pubblico.
+- [x] Test: `kind_dichiara_la_sonda`, `entrambe_le_strategie_espongono_vicini`,
+      `from_adapter_compone_le_strategie` — tutti verdi.
+- [x] Workspace verde (semantic_walk 104 + altri crate).
 
 ## 6. Relazioni
 
