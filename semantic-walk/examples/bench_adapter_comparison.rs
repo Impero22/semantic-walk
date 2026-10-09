@@ -442,15 +442,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[CMP] Radici rappresentative: {}", radici.len());
 
     // --- Passo 5: sweep dei coefficienti e confronto ---
-    // Sweep su beta e gamma (rigidità della camminata) e c_sem (barriera).
+    // Sweep su beta e gamma (rigidità della camminata), c_sem (barriera) e
+    // kappa (ampiezza del fascio). Il dato chiave del 09/10: allentare kappa
+    // (2→5→10) NON ripopola la frontiera del FrameAdapter (resta 1 cammino
+    // per radice in tutte le 54 celle) — il collasso è strutturale alla sonda
+    // di curvatura su frame normalizzati, non un artefatto della potatura.
     let betas = [0.5, 1.0, 2.0];
     let gammas = [0.5, 1.0, 2.0];
     let c_sems = [10.0, 100.0];
+    let kappas = [2.0, 5.0, 10.0];
 
     println!("\n[CMP] === Confronto FrameAdapter vs ProximityAdapter (H=4) ===");
     println!(
-        "{:<6} {:<6} {:<8} | {:<8} {:<8} | {:<8} {:<8} | {:<10} {:<10}",
-        "beta", "gamma", "c_sem",
+        "{:<6} {:<6} {:<8} {:<8} | {:<8} {:<8} | {:<8} {:<8} | {:<10} {:<10}",
+        "beta", "gamma", "c_sem", "kappa",
         "F:cam", "P:cam",
         "F:amp", "P:amp",
         "Jaccard", "Spearman"
@@ -463,6 +468,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &beta in &betas {
         for &gamma in &gammas {
             for &c_sem in &c_sems {
+                for &kappa in &kappas {
                 // Minimo passo inerziale empirico: misurare dove il fenomeno è,
                 // non assumere 0.01 (lezione collasso FrameAdapter, 09/10).
                 let min_step = misura_min_step_empirico(
@@ -475,7 +481,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 let config = SolverConfig {
                     horizon: 4,
-                    kappa: 2.0,
+                    kappa,
                     beta,
                     gamma,
                     c_sem,
@@ -539,12 +545,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let p_amp_med = p_amp_tot / p_cammini_tot.max(1) as f32;
 
                 println!(
-                    "{:<6} {:<6} {:<8.0} | {:<8} {:<8} | {:<8.4} {:<8.4} | {:<10.4} {:<10.4}",
-                    beta, gamma, c_sem,
+                    "{:<6} {:<6} {:<8.0} {:<8.0} | {:<8} {:<8} | {:<8.4} {:<8.4} | {:<10.4} {:<10.4}",
+                    beta, gamma, c_sem, kappa,
                     f_cammini_tot, p_cammini_tot,
                     f_amp_med, p_amp_med,
                     jaccard, spearman
                 );
+                }
             }
         }
     }
