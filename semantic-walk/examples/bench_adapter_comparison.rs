@@ -264,7 +264,7 @@ fn spearman(a: &[f32], b: &[f32]) -> f64 {
 // ---------------------------------------------------------------------------
 
 /// Misura il minimo valore **positivo** di `inertial_action` raggiungibile
-/// dal FrameAdapter su tutte le coppie (nodo, vicino) del grafo.
+/// dal FrameAdapter su **tutte** le coppie (nodo, vicino) del grafo.
 ///
 /// La lezione del collasso FrameAdapter (09/10): il `min_step` cablato a
 /// 0.01 era mille volte più grande del minimo inerziale reale (~0.000015),
@@ -272,22 +272,30 @@ fn spearman(a: &[f32], b: &[f32]) -> f64 {
 /// per radice sembrava un artefatto della potatura F6 ma era la soglia a
 /// farlo. Il minimo va misurato dove il fenomeno è, non assunto a priori.
 ///
+/// La prima implementazione misurava solo le coppie (radice → vicino): il
+/// solver però attraversa archi più profondi nella camminata (H=4), dove il
+/// costo inerziale può essere più piccolo → panic del `debug_assert` in
+/// `frontier.rs:168`. Il `debug_assert` assume un *bound globale garantito*
+/// (ogni passo futuro costa almeno `min_step`), quindi la misura deve
+/// coprire **tutte** le adiacenze del grafo, non un sottoinsieme.
+///
 /// Restituisce il minimo valore positivo osservato, oppure il default del
 /// solver (`0.002`) se nessuna coppia produce un'azione finita positiva.
 fn misura_min_step_empirico(
     adapter: &FrameAdapter,
-    radici: &[FactId],
     beta: f32,
     gamma: f32,
     c_sem: f32,
     m_sem: f32,
 ) -> f32 {
     let mut min_pos = f32::INFINITY;
-    for &root in radici {
-        let root_state = KinematicState::default();
-        let vicini = adapter.neighbors(root);
+    // Il grafo espone `nodi` come campo pubblico: scorriamo TUTTI i nodi,
+    // non solo le radici, così `min_step` è un vero bound globale garantito.
+    for &nodo in &adapter.grafo.nodi {
+        let stato_nodo = adapter.state_of(nodo.0);
+        let vicini = adapter.neighbors(nodo.0);
         for (_, stato_vicino) in vicini {
-            let action = root_state.inertial_action(&stato_vicino, beta, gamma, c_sem, m_sem);
+            let action = stato_nodo.inertial_action(&stato_vicino, beta, gamma, c_sem, m_sem);
             if action.is_finite() && action > 0.0 && action < min_pos {
                 min_pos = action;
             }
@@ -473,7 +481,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // non assumere 0.01 (lezione collasso FrameAdapter, 09/10).
                 let min_step = misura_min_step_empirico(
                     &frame_adapter,
-                    &radici,
                     beta,
                     gamma,
                     c_sem,
