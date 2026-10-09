@@ -293,4 +293,6 @@ pub mod solver;
 
 pub mod graph_adapter;
 
+pub mod probe_adapter;
+
 pub mod state;

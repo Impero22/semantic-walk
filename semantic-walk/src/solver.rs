@@ -34,6 +34,28 @@ use crate::frontier::{Frontier, FrontierNode};
 use crate::KinematicState;
 use semantic_combiner::FactId;
 
+/// La natura della sonda semantica che alimenta lo stato cinematico di un
+/// adapter.
+///
+/// È il modo in cui l'architettura dichiara *quale dimensione* della
+/// semantica il beam sta misurando. Distinguere la sonda è ciò che rende
+/// verificabile l'ortogonalità tra adapter complementari (la lezione del
+/// collasso FrameAdapter, 08/10): geometria locale e struttura relazionale
+/// coprono territori diversi, e la loro complementarità è una proprietà
+/// dichiarata dal tipo, non una promessa scritta a mano.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeKind {
+    /// Sonda di curvatura: la geometria locale del frame (velocità,
+    /// accelerazione, curvatura derivate dal frame stesso). È la convenzione
+    /// canonica `derive_state` del 06/10.
+    Curvature,
+    /// Sonda relazionale: lo stato del nodo deriva dalle sonde dei suoi archi
+    /// (la media delle sonde di prossimità). È la strategia secondaria di
+    /// `ProximityAdapter`, per i casi in cui lo stato per-frame non è
+    /// disponibile.
+    Relational,
+}
+
 /// L'astrazione di adiacenza su cui opera il solver.
 ///
 /// Dato un nodo, restituisce i suoi vicini con il relativo stato cinematico.
@@ -46,6 +68,18 @@ pub trait GraphAdapter {
     /// F6 è indipendente dall'ordine di espansione); può esserlo per la
     /// riproducibilità dei test, ed è quindi lasciato all'implementazione.
     fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)>;
+
+    /// La natura della sonda semantica di questo adapter.
+    ///
+    /// Via A del contratto ProbeAdapter (09/10): la sonda è dichiarata dal
+    /// tipo stesso che il solver consuma, così l'ortogonalità tra adapter
+    /// complementari è verificata a compile-time — se un adapter non la
+    /// dichiara, il default `Relational` non mente ma segnala la strategia
+    /// secondaria. Ogni adapter che vuole dichiarare la propria natura deve
+    /// sovrascrivere questo metodo.
+    fn probe_kind(&self) -> ProbeKind {
+        ProbeKind::Relational
+    }
 }
 
 /// I parametri del beam con ampiezza dinamica.

@@ -56,7 +56,8 @@
 
 use std::collections::HashMap;
 
-use crate::solver::GraphAdapter;
+use crate::solver::{GraphAdapter, ProbeKind};
+use crate::state::derive_state;
 use crate::KinematicState;
 use semantic_combiner::FactId;
 use semantic_graph::{Edge, Graph, NodeId};
@@ -141,6 +142,71 @@ impl GraphAdapter for ProximityAdapter {
             })
             .collect()
     }
+
+    fn probe_kind(&self) -> ProbeKind {
+        ProbeKind::Relational
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FrameAdapter — la convenzione canonica (derive_state)
+// ---------------------------------------------------------------------------
+
+/// L'adattatore che usa la geometria locale del frame denso.
+///
+/// Lo stato cinematico di ogni nodo è derivato dalla traiettoria densa reale
+/// del testo (norma, delta di norma, curvatura angolare) tramite
+/// [`derive_state`]. È la convenzione canonica del contratto del 06/10.
+///
+/// La sonda di questo adapter è la **curvatura**: la geometria locale del
+/// frame. È complementare (non in competizione) alla sonda relazionale di
+/// [`ProximityAdapter`] — la lezione del collasso FrameAdapter (08/10): su
+/// frame normalizzati a norma 1, la geometria locale ha una sola dimensione
+/// genuinamente indipendente (la curvatura), mentre la struttura relazionale
+/// copre un territorio diverso. L'ortogonalità è dichiarata dal tipo
+/// (`ProbeKind::Curvature`), verificata a compile-time.
+#[derive(Debug, Clone)]
+pub struct FrameAdapter {
+    grafo: Graph,
+    /// Nodo → traiettoria densa reale (i frame per-token del testo).
+    traiettorie: HashMap<FactId, Vec<Vec<f64>>>,
+}
+
+impl FrameAdapter {
+    /// Costruisce l'adattatore dal grafo di prossimità e dalle traiettorie
+    /// dense reali per nodo.
+    pub fn new(grafo: Graph, traiettorie: HashMap<FactId, Vec<Vec<f64>>>) -> Self {
+        FrameAdapter { grafo, traiettorie }
+    }
+
+    /// Lo stato cinematico di un nodo: `derive_state` sull'ultimo frame.
+    fn state_of(&self, node: FactId) -> KinematicState {
+        match self.traiettorie.get(&node) {
+            Some(traj) if !traj.is_empty() => {
+                let last = traj.len() - 1;
+                derive_state(traj, last, &traj[last])
+            }
+            _ => KinematicState::default(),
+        }
+    }
+}
+
+impl GraphAdapter for FrameAdapter {
+    fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)> {
+        let n = NodeId(node);
+        self.grafo
+            .vicini(n)
+            .into_iter()
+            .map(|vicino| {
+                let stato = self.state_of(vicino.0);
+                (vicino.0, stato)
+            })
+            .collect()
+    }
+
+    fn probe_kind(&self) -> ProbeKind {
+        ProbeKind::Curvature
+    }
 }
 
 #[cfg(test)]
@@ -209,5 +275,47 @@ mod tests {
         assert!((vicini[0].1.velocity - 0.8).abs() < 1e-6);
         assert!((vicini[0].1.acceleration - 0.7).abs() < 1e-6);
         assert!((vicini[0].1.curvature - 0.55).abs() < 1e-6);
+    }
+
+    #[test]
+    fn probe_kind_dei_due_adapter() {
+        // ProximityAdapter è una sonda relazionale.
+        let mut g = Graph::new(GraphConfig::default());
+        g.nodi = vec![NodeId(1), NodeId(2)];
+        g.archi = vec![arco(1, 2, 0.5, 0.5, 0.5, 0.5)];
+        let prox = ProximityAdapter::new(g);
+        assert_eq!(prox.probe_kind(), ProbeKind::Relational);
+
+        // FrameAdapter è una sonda di curvatura.
+        let g2 = Graph::new(GraphConfig::default());
+        let traiettorie = HashMap::new();
+        let frame = FrameAdapter::new(g2, traiettorie);
+        assert_eq!(frame.probe_kind(), ProbeKind::Curvature);
+    }
+
+    #[test]
+    fn frame_adapter_stato_da_geometria_locale() {
+        // Un nodo 1 con una traiettoria di due frame: il secondo ha norma
+        // maggiore (accelerazione positiva) e angolo rispetto al primo.
+        let mut g = Graph::new(GraphConfig::default());
+        g.nodi = vec![NodeId(1), NodeId(2)];
+        g.archi = vec![arco(1, 2, 0.5, 0.5, 0.5, 0.5)];
+        let mut traiettorie = HashMap::new();
+        // Frame 0: [1.0, 0.0], frame 1: [0.0, 2.0]
+        traiettorie.insert(1u64, vec![vec![1.0, 0.0], vec![0.0, 2.0]]);
+        let frame = FrameAdapter::new(g, traiettorie);
+        // Lo stato del nodo 1: derive_state sull'ultimo frame.
+        let stato = frame.state_of(1);
+        // norma di [0,2] = 2.0
+        assert!((stato.velocity - 2.0).abs() < 1e-6);
+        // accelerazione = 2.0 - 1.0 = 1.0
+        assert!((stato.acceleration - 1.0).abs() < 1e-6);
+        // curvatura = angolo tra [1,0] e [0,2] = pi/2
+        assert!((stato.curvature - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        // neighbors usa lo stato del vicino: per il nodo 2 non c'è traiettoria
+        // → KinematicState::default() (zero).
+        let vicini = frame.neighbors(1);
+        assert_eq!(vicini.len(), 1);
+        assert_eq!(vicini[0].1.velocity, 0.0);
     }
 }
