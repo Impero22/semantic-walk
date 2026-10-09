@@ -56,7 +56,7 @@
 
 use std::collections::HashMap;
 
-use crate::solver::{GraphAdapter, ProbeKind};
+use crate::solver::GraphAdapter;
 use crate::state::derive_state;
 use crate::KinematicState;
 use semantic_combiner::FactId;
@@ -142,10 +142,6 @@ impl GraphAdapter for ProximityAdapter {
             })
             .collect()
     }
-
-    fn probe_kind(&self) -> ProbeKind {
-        ProbeKind::Relational
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +160,7 @@ impl GraphAdapter for ProximityAdapter {
 /// frame normalizzati a norma 1, la geometria locale ha una sola dimensione
 /// genuinamente indipendente (la curvatura), mentre la struttura relazionale
 /// copre un territorio diverso. L'ortogonalità è dichiarata dal tipo
-/// (`ProbeKind::Curvature`), verificata a compile-time.
+/// (`ProbeKind::Curvature`), verificata dal selettore di strategia.
 #[derive(Debug, Clone)]
 pub struct FrameAdapter {
     grafo: Graph,
@@ -202,10 +198,6 @@ impl GraphAdapter for FrameAdapter {
                 (vicino.0, stato)
             })
             .collect()
-    }
-
-    fn probe_kind(&self) -> ProbeKind {
-        ProbeKind::Curvature
     }
 }
 
@@ -275,22 +267,6 @@ mod tests {
         assert!((vicini[0].1.velocity - 0.8).abs() < 1e-6);
         assert!((vicini[0].1.acceleration - 0.7).abs() < 1e-6);
         assert!((vicini[0].1.curvature - 0.55).abs() < 1e-6);
-    }
-
-    #[test]
-    fn probe_kind_dei_due_adapter() {
-        // ProximityAdapter è una sonda relazionale.
-        let mut g = Graph::new(GraphConfig::default());
-        g.nodi = vec![NodeId(1), NodeId(2)];
-        g.archi = vec![arco(1, 2, 0.5, 0.5, 0.5, 0.5)];
-        let prox = ProximityAdapter::new(g);
-        assert_eq!(prox.probe_kind(), ProbeKind::Relational);
-
-        // FrameAdapter è una sonda di curvatura.
-        let g2 = Graph::new(GraphConfig::default());
-        let traiettorie = HashMap::new();
-        let frame = FrameAdapter::new(g2, traiettorie);
-        assert_eq!(frame.probe_kind(), ProbeKind::Curvature);
     }
 
     #[test]

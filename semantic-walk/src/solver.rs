@@ -68,18 +68,6 @@ pub trait GraphAdapter {
     /// F6 è indipendente dall'ordine di espansione); può esserlo per la
     /// riproducibilità dei test, ed è quindi lasciato all'implementazione.
     fn neighbors(&self, node: FactId) -> Vec<(FactId, KinematicState)>;
-
-    /// La natura della sonda semantica di questo adapter.
-    ///
-    /// Via A del contratto ProbeAdapter (09/10): la sonda è dichiarata dal
-    /// tipo stesso che il solver consuma, così l'ortogonalità tra adapter
-    /// complementari è verificata a compile-time — se un adapter non la
-    /// dichiara, il default `Relational` non mente ma segnala la strategia
-    /// secondaria. Ogni adapter che vuole dichiarare la propria natura deve
-    /// sovrascrivere questo metodo.
-    fn probe_kind(&self) -> ProbeKind {
-        ProbeKind::Relational
-    }
 }
 
 /// I parametri del beam con ampiezza dinamica.

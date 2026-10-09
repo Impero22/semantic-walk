@@ -9,9 +9,9 @@
 //! ProbeAdapter::Relational  (ProximityAdapter — struttura relazionale)
 //! ```
 //!
-//! A differenza della Via A (trait `GraphAdapter` con `probe_kind()`, in
-//! `solver.rs`), qui la sonda è un **selettore di strategia** a runtime: lo
-//! stesso codice sceglie quale delle due dimensioni misurare. La
+//! A differenza della Via A (scartata il 10/10 — `probe_kind()` sul trait
+//! `GraphAdapter`, in `solver.rs`), qui la sonda è un **selettore di strategia**
+//! a runtime: lo stesso codice sceglie quale delle due dimensioni misurare. La
 //! complementarità tra le due sonde (lezione del collasso FrameAdapter,
 //! 08/10) resta dichiarata dal tipo, ma la selezione è esplicita e
 //! componibile — si può costruire un `ProbeAdapter` per ogni strategia e
@@ -71,10 +71,6 @@ impl GraphAdapter for ProbeAdapter {
             ProbeAdapter::Relational(a) => a.neighbors(node),
         }
     }
-
-    fn probe_kind(&self) -> ProbeKind {
-        self.kind()
-    }
 }
 
 #[cfg(test)]
@@ -101,11 +97,9 @@ mod tests {
 
         let cur = ProbeAdapter::curvature(g.clone(), HashMap::new());
         assert_eq!(cur.kind(), ProbeKind::Curvature);
-        assert_eq!(cur.probe_kind(), ProbeKind::Curvature);
 
         let rel = ProbeAdapter::relational(g);
         assert_eq!(rel.kind(), ProbeKind::Relational);
-        assert_eq!(rel.probe_kind(), ProbeKind::Relational);
     }
 
     #[test]
