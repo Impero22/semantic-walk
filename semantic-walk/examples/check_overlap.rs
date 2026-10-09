@@ -11,7 +11,7 @@ use zip::ZipArchive;
 use semantic_walk::ordered_sparse::OrderedSparseSequence;
 
 #[derive(Deserialize, Debug)]
-struct IndexEntry { category: String, text_a: String, text_b: String }
+struct IndexEntry { category: String }
 type DatasetIndex = HashMap<String, IndexEntry>;
 
 fn data_dir() -> PathBuf { PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data/dataset_a") }
