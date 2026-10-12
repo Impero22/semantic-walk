@@ -976,6 +976,30 @@ comunicazioni/20260926_risultato_maxsim_baseline.md (risultato empirico).
 
 Coerente con la lezione SPARSE_EPSILON: la soglia deve stare dove il fenomeno è, non sotto.
 
+## 07/10/26 00:01 — Chiusura difetto di scala del guardiano: normalizzazione Jaccard (commit 7ad2d52, 103f451)
+
+**Idee di partenza:**
+- La voce precedente (06/10 22:16) documentava il difetto di scala: `global_overlap` conta bit assoluti della firma Bloom, che saturano con sequenze lunghe → la soglia 0/2/4/5 non discrimina mai sul Dataset A reale (12+ token).
+- Decisione in sospeso portata a Camillo: tre opzioni (normalizzare / ricalibrare in bit / cambiare metrica). Inclinazione di Iris: opzione 1 (normalizzare).
+
+**Obiettivi:**
+- Rendere il guardiano dello Strato 1 robusto alla lunghezza delle sequenze, con una soglia interpretabile come frazione di presenza condivisa.
+
+**Metodi utilizzati:**
+- `global_jaccard` (ordered_sparse.rs:267): Jaccard sulla firma Bloom 128-bit — `inter/union` sui bit condivisi, normalizzato in [0.0, 1.0], robusto alla lunghezza. Caso degenere (unione vuota) → 0.0, coerente col contratto dei soppressi.
+- Nuove varianti pubbliche in dtw.rs: `align_with_ordered_sparse_norm` (soglia Jaccard esplicita) e `align_with_ordered_sparse_default` (usa `MIN_JACCARD_DEFAULT`).
+- `MIN_JACCARD_DEFAULT = 0.65` (livello L8): punto di equilibrio tra selettività e preservazione emerso dall'ablazione L6-L9 (L9 a 0.80 crolla a 0.5000 perché scarta il 31.6% dei campioni e distorce la distribuzione).
+- Core condiviso `align_with_ordered_sparse_impl` parametrizzato dal predicato di pruning: le varianti differiscono solo nella metrica (bit assoluti vs Jaccard normalizzato).
+
+**Risultati attesi:**
+- Il guardiano normalizzato discrimina indipendentemente dalla lunghezza delle sequenze.
+
+**Risultati ottenuti:**
+- Guardiano normalizzato come default (commit 103f451, 07/10 00:01). L'opzione 1 della decisione in sospeso è implementata e in main.
+- Il vecchio `align_with_ordered_sparse` (bit assoluti) resta disponibile per compatibilità, ma il default è la variante normalizzata.
+
+**Nota di chiusura (Iris, 12/10):** questa voce di chiusura mancava dal registro — i commit 7ad2d52/103f451 erano stati fatti senza aggiornare il tracciamento, lasciando la "decisione in sospeso" formalmente aperta nel documento pur essendo risolta nel codice. Riaperta da Iris il 12/10 verificando il codice (Notepad 45/56: verificare cosa esiste già prima di trattare qualcosa come da fare). Lezione gemella al Notepad 89: il punto di verità del registro è docs/, e un commit che cambia un default senza voce nel tracciamento lascia un buco.
+
 ## 08/10/26 — Collasso FrameAdapter: decisione Strada 1 (Complementarità)
 
 **Sintomo:**
