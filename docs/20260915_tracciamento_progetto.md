@@ -1034,3 +1034,29 @@ Le due convenzioni misurano **dimensioni diverse** e vanno trattate come **compl
 - `dd950a4` (Iris): benchmark comparativo FrameAdapter vs ProximityAdapter + rimozione debug temporanei (spostati in `/home/iris/backup_debug_collasso/`).
 
 **Aperto:** scheletro API pubbliche `ProbeAdapter` (stende Camillo). Push GitHub in attesa del token di Camillo (remote HTTPS Impero22/semantic-walk).
+
+---
+
+## 13/10/2026 — Collasso delle sonde nel benchmark oracolo (Dataset B)
+
+**Sintomo:** il benchmark `verify_oracle_real_dataset.rs` (oracolo esaustivo vs BeamSolver, 200 radici, H=4) mostra scostamento massimo 0.1235%, media 0.1112%. Camillo propone di committare come validazione formale di F6.
+
+**Osservazione sospetta:** 180 radici su 200 danno costo oracolo *esattamente* 2.0561, le altre 20 *esattamente* 2.0567 — costi quasi identici per radici diverse = poca struttura nel grafo.
+
+**Diagnosi (verificata su codice reale, Iris):**
+- `auto_dense` (righe 100-112) calcola per ogni riga la similarità massima con tutte le altre righe della stessa sequenza, **inclusa se stessa** (loop `for j in 0..t` include `j==i`).
+- I vettori dense sono normalizzati (norma L2 = 1.0, verificato: riga 0 = 1.0000005). Quindi `dot(vec_a, vec_a) = 1.0` sempre, e il dot di vettori normalizzati è sempre ≤ 1.0 ⇒ `max_sim = 1.0` esattamente per ogni riga ⇒ media = 1.0 per ogni sequenza.
+- **La sonda dense è una costante = 1.0 per tutti i 400 fatti, deviazione standard zero.** Il canale denso del grafo di prossimità è morto per costruzione.
+- Il grafo si costruisce solo sulla sonda sparse (range 0.23–0.33) → stati quasi indistinguibili → beam e oracolo trovano lo stesso costo per mancanza di struttura, non per precisione di F6.
+
+**Causa strutturale:** `auto_dense` è una *self-misurazione* (self-similarity), che per vettori normalizzati collassa su 1.0 per costruzione. `auto_sparse` soffre dello stesso difetto concettuale (self-overlap della firma con se stessa).
+
+**Conclusione:** il benchmark non valida F6 — misura un artefatto. **Nessun commit effettuato.** Il file non è tracciato.
+
+**Correzione proposta (da concordare con Camillo):**
+1. Sonda dense = similarità media tra le righe di A e quelle di B della coppia (informazione relazionale).
+2. Statistica intrinseca non degenere (es. similarità media tra righe consecutive, o varianza interna).
+
+**Documento di diagnosi completo:** `docs/20261013_collasso_sonde_auto_dense.md`.
+
+**Lezione:** il dato che "sembra confermare una tesi" va guardato nella sua struttura prima di accettarlo. Costi quasi identici per radici diverse sono un campanello d'allarme — la conferma che cercavamo era il prodotto di un canale morto.
