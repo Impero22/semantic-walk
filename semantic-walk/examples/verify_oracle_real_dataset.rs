@@ -157,9 +157,41 @@ fn relazionale_a_b(seq_a: &[Vec<f64>], seq_b: &[Vec<f64>]) -> f64 {
 
 /// Oracolo esaustivo: esplora tutti i cammini entro l'orizzonte con
 /// cycle-detection e restituisce il costo minimo globale.
+/// Misura il minimo incremento inerziale positivo sugli archi reali del grafo,
+/// usando gli stati intrinseci dell'adapter. Convenzione del test di
+/// riferimento (`beam_solver_su_dataset_b`): il bound deve stare dove il
+/// fenomeno è, non sotto (lezione Notepad 81 / commit 2746332).
+fn measure_min_step(
+    grafo: &semantic_graph::Graph,
+    adapter: &ProximityAdapter,
+    beta: f32,
+    gamma: f32,
+) -> f32 {
+    let mut min = f32::INFINITY;
+    for n in 0..grafo.n_nodi() {
+        let from = adapter.state_of(n as FactId);
+        for (nb, _) in adapter.neighbors(n as FactId) {
+            let to = adapter.state_of(nb);
+            if from == to {
+                continue;
+            }
+            let a = from.inertial_action(&to, beta, gamma, 100.0, 1.0);
+            if a > 0.0 && a < min {
+                min = a;
+            }
+        }
+    }
+    if min.is_finite() {
+        min
+    } else {
+        1e-6
+    }
+}
+
 fn exhaustive_min(
     adapter: &ProximityAdapter,
     root: FactId,
+    root_state: KinematicState,
     horizon: usize,
     beta: f32,
     gamma: f32,
@@ -168,7 +200,6 @@ fn exhaustive_min(
 ) -> Option<f32> {
     let mut best_cost = f32::INFINITY;
 
-    let root_state = KinematicState::default();
     let mut stack: Vec<(FactId, KinematicState, f32, usize, HashSet<FactId>)> = Vec::new();
 
     let mut initial_visited = HashSet::new();
@@ -218,8 +249,9 @@ fn exhaustive_min(
 fn beam_min(
     solver: &BeamSolver<ProximityAdapter>,
     root: FactId,
+    root_state: KinematicState,
 ) -> Option<f32> {
-    let paths = solver.solve(root, KinematicState::default());
+    let paths = solver.solve(root, root_state);
     paths
         .iter()
         .map(|p| p.total_cost)
@@ -289,21 +321,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = ProximityAdapter::new(grafo.clone());
 
     let horizon = 4;
+    let (beta, gamma, c_sem, m_sem) = (1.0, 1.0, 100.0, 1.0);
+    let min_step = measure_min_step(&grafo, &adapter, beta, gamma);
     let solver_config = SolverConfig {
         horizon,
         kappa: 2.0,
-        min_step: 0.01,
+        min_step,
         ..Default::default()
     };
     let solver = BeamSolver::new(adapter.clone(), solver_config);
 
     let radici: Vec<FactId> = (0..pair_ids.len()).map(|i| (i * 2) as FactId).collect();
 
-    let (beta, gamma, c_sem, m_sem) = (1.0, 1.0, 100.0, 1.0);
-
     let mut delta_abs_all: Vec<f64> = Vec::new();
     let mut delta_rel_all: Vec<f64> = Vec::new();
     let mut per_fascia: HashMap<&'static str, Vec<f64>> = HashMap::new();
+    // (pair_id, fascia, delta_rel, oracle, beam) per identificare i casi peggiori
+    let mut per_root: Vec<(String, &'static str, f64, f32, f32)> = Vec::new();
 
     println!("\n[ORACLE] === Scostamento Beam vs Oracolo esaustivo (H={}, {} radici) ===", horizon, radici.len());
 
@@ -322,8 +356,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "fascia3_divergenza"
         };
 
-        let oracle = exhaustive_min(&adapter, root, horizon, beta, gamma, c_sem, m_sem);
-        let beam = beam_min(&solver, root);
+        let oracle = exhaustive_min(&adapter, root, adapter.state_of(root), horizon, beta, gamma, c_sem, m_sem);
+        let beam = beam_min(&solver, root, adapter.state_of(root));
 
         match (oracle, beam) {
             (Some(o), Some(b)) => {
@@ -332,6 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 delta_abs_all.push(d_abs);
                 delta_rel_all.push(d_rel);
                 per_fascia.entry(fascia).or_default().push(d_rel);
+                per_root.push((pair_id.to_string(), fascia, d_rel, o, b));
             }
             (None, _) => {
                 oracle_none += 1;
@@ -370,6 +405,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             f_m,
             f_p90,
             f_mx
+        );
+    }
+
+    // TOP 15 casi peggiori per-radice
+    per_root.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    println!("\n=== TOP 15 scostamenti per-radice ===");
+    for (pair_id, fascia, d_rel, o, b) in per_root.iter().take(15) {
+        println!(
+            "  pair={:<10} fascia={:<24} Δrel={:>8.2}%  oracle={:.4} beam={:.4}",
+            pair_id, fascia, d_rel, o, b
         );
     }
 

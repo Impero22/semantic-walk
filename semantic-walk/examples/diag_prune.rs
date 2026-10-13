@@ -26,13 +26,13 @@ fn main() {
     println!("Grafo: {} nodi, {} archi", grafo.n_nodi(), grafo.n_archi());
 
     let adapter = ProximityAdapter::new(grafo.clone());
-    let solver = BeamSolver::new(adapter, SolverConfig {
+    let solver = BeamSolver::new(adapter.clone(), SolverConfig {
         horizon: 4, kappa: 0.05, min_step: 0.01, ..Default::default()
     });
 
     let root = 0u64;
     let t = Instant::now();
-    let paths = solver.solve(root, KinematicState::default());
+    let paths = solver.solve(root, adapter.state_of(root));
     println!("Cammini totali: {} in {:?}", paths.len(), t.elapsed());
 
     // Distribuzione dei costi cumulati dei cammini.
