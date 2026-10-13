@@ -144,8 +144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let s_b = auto_sparse(&sparse_b);
         let c_b = d_b;
 
-        fatti.push(Fatto { id: NodeId((pair_idx * 2) as u64), dense: d_a, sparse: s_a, colbert: c_a });
-        fatti.push(Fatto { id: NodeId((pair_idx * 2 + 1) as u64), dense: d_b, sparse: s_b, colbert: c_b });
+        fatti.push(Fatto { id: NodeId((pair_idx * 2) as u64), colbert: d_a, sparse: s_a, relazionale: c_a });
+        fatti.push(Fatto { id: NodeId((pair_idx * 2 + 1) as u64), colbert: d_b, sparse: s_b, relazionale: c_b });
     }
     println!("Fatti costruiti: {}", fatti.len());
 

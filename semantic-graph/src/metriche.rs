@@ -127,9 +127,9 @@ mod tests {
                 from: NodeId(a),
                 to: NodeId(b),
                 score: s,
-                dense: s,
-                sparse: s,
                 colbert: s,
+                sparse: s,
+                relazionale: s,
             })
             .collect();
         g
@@ -171,9 +171,9 @@ mod tests {
                 from: NodeId(a),
                 to: NodeId(b),
                 score: s,
-                dense: s,
-                sparse: s,
                 colbert: s,
+                sparse: s,
+                relazionale: s,
             })
             .collect();
         assert_eq!(clustering(&g, NodeId(1)), Some(1.0));
@@ -191,9 +191,9 @@ mod tests {
                 from: NodeId(a),
                 to: NodeId(b),
                 score: s,
-                dense: s,
-                sparse: s,
                 colbert: s,
+                sparse: s,
+                relazionale: s,
             })
             .collect();
         assert_eq!(clustering(&g, NodeId(2)), Some(0.0));

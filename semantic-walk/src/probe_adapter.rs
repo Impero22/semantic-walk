@@ -90,14 +90,14 @@ mod tests {
     use super::*;
     use semantic_graph::{Edge, GraphConfig, NodeId};
 
-    fn arco(from: u64, to: u64, score: f64, dense: f64, sparse: f64, colbert: f64) -> Edge {
+    fn arco(from: u64, to: u64, score: f64, colbert: f64, sparse: f64, relazionale: f64) -> Edge {
         Edge {
             from: NodeId(from),
             to: NodeId(to),
             score,
-            dense,
-            sparse,
             colbert,
+            sparse,
+            relazionale,
         }
     }
 

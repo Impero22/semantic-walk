@@ -17,8 +17,8 @@ fn main() {
         let d = ((i % 7) as f64) / 6.0;          // dense in [0,1]
         let s = ((i % 5) as f64) / 4.0;          // sparse in [0,1]
         let c = ((i % 3) as f64) / 2.0;          // colbert in [0,1]
-        fatti.push(Fatto { id: NodeId((i*2) as u64), dense: d, sparse: s, colbert: c });
-        fatti.push(Fatto { id: NodeId((i*2+1) as u64), dense: s, sparse: c, colbert: d });
+        fatti.push(Fatto { id: NodeId((i*2) as u64), colbert: d, sparse: s, relazionale: c });
+        fatti.push(Fatto { id: NodeId((i*2+1) as u64), colbert: s, sparse: c, relazionale: d });
     }
 
     let config = GraphConfig { k: 5, soglia: 0.5, percentile_cutoff: 0.0, pesi: [0.6, 0.25, 0.15] };

@@ -58,9 +58,7 @@ fn genera_dataset(n: usize, seed: u64) -> Vec<Fatto> {
             );
             Fatto {
                 id: NodeId(i as u64),
-                dense: d,
-                sparse: s,
-                colbert: col,
+                colbert: d, sparse: s, relazionale: col,
             }
         })
         .collect()
@@ -99,9 +97,9 @@ fn verifica_qualita_selezione() -> bool {
     //
     // Con il fallback NodeId (ordine arbitrario), se A ha id < B, A
     // vincerebbe — sbagliato.
-    let f0 = Fatto { id: NodeId(0), dense: 1.0, sparse: 1.0, colbert: 1.0 };
-    let a = Fatto { id: NodeId(1), dense: 0.9, sparse: 0.1, colbert: 0.5 };
-    let b = Fatto { id: NodeId(2), dense: 0.5, sparse: 0.2, colbert: 0.5 };
+    let f0 = Fatto { id: NodeId(0), colbert: 1.0, sparse: 1.0, relazionale: 1.0 };
+    let a = Fatto { id: NodeId(1), colbert: 0.9, sparse: 0.1, relazionale: 0.5 };
+    let b = Fatto { id: NodeId(2), colbert: 0.5, sparse: 0.2, relazionale: 0.5 };
 
     let config = GraphConfig {
         k: 1,

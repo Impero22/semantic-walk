@@ -12,21 +12,25 @@ use semantic_combiner::{
 };
 
 /// La descrizione di un fatto della memoria: l'id e le sue sonde.
+///
+/// I tre canali (contratto 13/10): `colbert` = auto-similarità interna della
+/// sequenza, `sparse` = auto-overlap del walk, `relazionale` = similarità
+/// incrociata A-vs-B della coppia. Sono tre misure genuinamente distinte.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fatto {
     pub id: NodeId,
-    pub dense: f64,
-    pub sparse: f64,
     pub colbert: f64,
+    pub sparse: f64,
+    pub relazionale: f64,
 }
 
 impl Fatto {
     /// Il punteggio combinato con un altro fatto, dati i pesi.
     pub fn punteggio(&self, altro: &Fatto, pesi: [f64; 3]) -> f64 {
         let axes = NormalizedAxes::normalize(
-            self.dense * altro.dense,
-            self.sparse * altro.sparse,
             self.colbert * altro.colbert,
+            self.sparse * altro.sparse,
+            self.relazionale * altro.relazionale,
             LAMBDA_CALIBRATO,
         );
         combine(&axes, pesi)
@@ -35,13 +39,6 @@ impl Fatto {
 
 /// Distanza euclidea pesata dal punto ideale (1.0, 1.0, 1.0) nello spazio
 /// degli assi normalizzati.
-///
-/// Usata come criterio di spareggio deterministico nel tie-break dei
-/// candidati kNN: a parità di score scalare e di non-dominanza sul fronte di
-/// Pareto, vince il candidato la cui triade di sonde è globalmente più vicina
-/// alla saturazione ottimale, pesata secondo i pesi del combiner. In questo
-/// modo una deviazione su un canale pesante (es. sparse) penalizza più di una
-/// su un canale leggero (es. dense), in coerenza con `PESI_CALIBRATI`.
 fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
     let d = 1.0 - axes.dense;
     let s = 1.0 - axes.sparse;
@@ -50,13 +47,6 @@ fn distanza_ottimo_pesata(axes: &NormalizedAxes, pesi: [f64; 3]) -> f64 {
 }
 
 /// Calcola il valore al percentile `p` (in `[0, 1]`) di una serie di punteggi.
-///
-/// Usa l'interpolazione lineare semplice (metodo di tipo "nearest-rank
-/// interpola"): ordina i punteggi in modo crescente e interpola tra i due
-/// valori che racchiudono l'indice `p * (n - 1)`. Con `p = 0.0` restituisce
-/// il minimo, con `p = 1.0` il massimo.
-///
-/// Una serie vuota restituisce `0.0` (nessun candidato → nessun taglio).
 fn calcola_percentile(scores: &[f64], percentile: f64) -> f64 {
     if scores.is_empty() {
         return 0.0;
@@ -110,9 +100,9 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
             .filter(|(j, _)| *j != i)
             .map(|(_, altro)| {
                 let axes = NormalizedAxes::normalize(
-                    fatto.dense * altro.dense,
-                    fatto.sparse * altro.sparse,
                     fatto.colbert * altro.colbert,
+                    fatto.sparse * altro.sparse,
+                    fatto.relazionale * altro.relazionale,
                     LAMBDA_CALIBRATO,
                 );
                 let score = combine(&axes, pesi);
@@ -157,9 +147,9 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
                     from,
                     to,
                     score,
-                    fatto.dense * altro.dense,
-                    fatto.sparse * altro.sparse,
                     fatto.colbert * altro.colbert,
+                    fatto.sparse * altro.sparse,
+                    fatto.relazionale * altro.relazionale,
                 ));
             }
         }
@@ -170,13 +160,13 @@ pub fn costruisci(fatti: &[Fatto], config: GraphConfig) -> Graph {
 
     grafo.archi = archi_vec
         .into_iter()
-        .map(|(from, to, score, dense, sparse, colbert)| Edge {
+        .map(|(from, to, score, colbert, sparse, relazionale)| Edge {
             from: NodeId(from),
             to: NodeId(to),
             score,
-            dense,
-            sparse,
             colbert,
+            sparse,
+            relazionale,
         })
         .collect();
 
@@ -188,12 +178,12 @@ mod tests {
     use super::*;
     use crate::metriche::grado;
 
-    fn fatto(id: u64, dense: f64, sparse: f64, colbert: f64) -> Fatto {
+    fn fatto(id: u64, colbert: f64, sparse: f64, relazionale: f64) -> Fatto {
         Fatto {
             id: NodeId(id),
-            dense,
-            sparse,
             colbert,
+            sparse,
+            relazionale,
         }
     }
 

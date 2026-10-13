@@ -226,15 +226,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fatti.push(Fatto {
             id: NodeId((pair_idx * 2) as u64),
-            dense: d_a,
-            sparse: s_a,
-            colbert: c_a,
+            colbert: d_a, sparse: s_a, relazionale: c_a,
         });
         fatti.push(Fatto {
             id: NodeId((pair_idx * 2 + 1) as u64),
-            dense: d_b,
-            sparse: s_b,
-            colbert: c_b,
+            colbert: d_b, sparse: s_b, relazionale: c_b,
         });
 
         coppie_ok += 1;

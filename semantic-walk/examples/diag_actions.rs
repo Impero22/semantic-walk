@@ -171,15 +171,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fatti.push(Fatto {
             id: NodeId((pair_idx * 2) as u64),
-            dense: d_a,
-            sparse: s_a,
-            colbert: c_a,
+            colbert: d_a, sparse: s_a, relazionale: c_a,
         });
         fatti.push(Fatto {
             id: NodeId((pair_idx * 2 + 1) as u64),
-            dense: d_b,
-            sparse: s_b,
-            colbert: c_b,
+            colbert: d_b, sparse: s_b, relazionale: c_b,
         });
     }
 
@@ -192,15 +188,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grafo: Graph = costruisci(&fatti, config);
     println!("Grafo: {} nodi, {} archi", grafo.n_nodi(), grafo.n_archi());
 
-    // Parametri del benchmark (SolverConfig del bench end-to-end).
     let beta = 1.0f32;
     let gamma = 1.0f32;
     let c_sem = 100.0f32;
     let m_sem = 1.0f32;
     let kappa = 0.05f32;
 
-    // Ricostruisce lo stato intrinseco di un nodo come media delle sonde dei
-    // suoi archi (stessa convenzione di ProximityAdapter::stato_intrinseco).
     fn stato_intrinseco(grafo: &Graph, n: NodeId) -> Option<KinematicState> {
         let archi: Vec<_> = grafo
             .archi
@@ -213,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let count = archi.len() as f64;
         let velocity = archi.iter().map(|e| e.score).sum::<f64>() / count;
-        let acceleration = archi.iter().map(|e| e.dense).sum::<f64>() / count;
+        let acceleration = archi.iter().map(|e| e.colbert).sum::<f64>() / count;
         let curvature = archi
             .iter()
             .map(|e| (e.sparse + e.colbert) / 2.0)
@@ -226,8 +219,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     }
 
-    // Misura l'azione inerziale su tutti gli archi del grafo, usando gli
-    // stati intrinseci (da→to).
     let mut azioni: Vec<f32> = Vec::new();
     let mut inf = 0usize;
     for e in &grafo.archi {
@@ -259,8 +250,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("max:  {:.6}", max);
     println!("mean: {:.6}", mean);
 
-    // Cosa implica per il beam: con kappa=2, l'ampiezza di un cammino di H
-    // passi è exp(−S_cum/2). Quanto varia l'ampiezza per i cammini tipici?
     println!("\n=== Implicazione per il beam (kappa=2, H=4) ===");
     for passi in 1..=4usize {
         let s_min = min * passi as f32;
@@ -275,7 +264,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Quanto è largo l'intervallo di ampiezza rispetto a PRUNE_EPSILON=0.002?
     let s_min_h4 = min * 4.0;
     let s_p90_h4 = p90 * 4.0;
     let amp_range = ((-s_min_h4 / kappa).exp()) - ((-s_p90_h4 / kappa).exp());

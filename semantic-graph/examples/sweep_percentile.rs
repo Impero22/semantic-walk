@@ -225,9 +225,9 @@ fn main() {
                     from: NodeId(f),
                     to: NodeId(t),
                     score: s,
-                    dense: s,
+                    colbert: s,
                     sparse: 0.0,
-                    colbert: 0.0,
+                    relazionale: 0.0,
                 })
                 .collect(),
         };

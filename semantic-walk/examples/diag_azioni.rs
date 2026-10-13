@@ -129,8 +129,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let d_b = auto_dense(&seq_b);
         let s_b = auto_sparse(&sparse_b);
         let c_b = d_b;
-        fatti.push(Fatto { id: NodeId((pair_idx * 2) as u64), dense: d_a, sparse: s_a, colbert: c_a });
-        fatti.push(Fatto { id: NodeId((pair_idx * 2 + 1) as u64), dense: d_b, sparse: s_b, colbert: c_b });
+        fatti.push(Fatto { id: NodeId((pair_idx * 2) as u64), colbert: d_a, sparse: s_a, relazionale: c_a });
+        fatti.push(Fatto { id: NodeId((pair_idx * 2 + 1) as u64), colbert: d_b, sparse: s_b, relazionale: c_b });
     }
 
     let config = GraphConfig { k: 5, soglia: 0.5, percentile_cutoff: 0.0, pesi: [0.6, 0.25, 0.15] };

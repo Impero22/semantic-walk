@@ -389,15 +389,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fatti.push(Fatto {
             id: NodeId(id_a),
-            dense: d_a,
-            sparse: s_a,
-            colbert: c_a,
+            colbert: d_a, sparse: s_a, relazionale: c_a,
         });
         fatti.push(Fatto {
             id: NodeId(id_b),
-            dense: d_b,
-            sparse: s_b,
-            colbert: c_b,
+            colbert: d_b, sparse: s_b, relazionale: c_b,
         });
 
         // Traiettorie dense reali per il FrameAdapter.

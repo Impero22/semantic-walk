@@ -42,16 +42,16 @@ pub struct NodeId(pub u64);
 /// Un arco del grafo: un legame pesato tra due fatti.
 ///
 /// Lo score è il punteggio combinato (la forza del legame). La tripletta
-/// `(dense, sparse, colbert)` è la *qualità* del legame — da quale asse
-/// arriva la vicinanza.
+/// `(colbert, sparse, relazionale)` è la *qualità* del legame — da quale asse
+/// arriva la vicinanza (contratto 13/10: tre canali genuinamente distinti).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Edge {
     pub from: NodeId,
     pub to: NodeId,
     pub score: f64,
-    pub dense: f64,
-    pub sparse: f64,
     pub colbert: f64,
+    pub sparse: f64,
+    pub relazionale: f64,
 }
 
 impl Edge {
@@ -190,9 +190,9 @@ mod tests {
             from: a,
             to: b,
             score: 0.7,
-            dense: 0.8,
+            colbert: 0.8,
             sparse: 0.5,
-            colbert: 0.6,
+            relazionale: 0.6,
         }];
         // L'arco esiste in entrambe le direzioni.
         assert!(g.ha_arco(a, b));
@@ -209,21 +209,21 @@ mod tests {
 
         let a = Fatto {
             id: NodeId(1),
-            dense: 0.9,
-            sparse: 0.9,
             colbert: 0.9,
+            sparse: 0.9,
+            relazionale: 0.9,
         };
         let b = Fatto {
             id: NodeId(2),
-            dense: 0.5,
-            sparse: 0.5,
             colbert: 0.5,
+            sparse: 0.5,
+            relazionale: 0.5,
         };
         let r = Fatto {
             id: NodeId(3),
-            dense: 0.8,
-            sparse: 0.8,
             colbert: 0.8,
+            sparse: 0.8,
+            relazionale: 0.8,
         };
 
         let g = costruisci(&[a, b, r], GraphConfig::default());

@@ -104,10 +104,10 @@ impl ProximityAdapter {
         }
         let count = archi.len() as f64;
         let velocity = archi.iter().map(|e| e.score).sum::<f64>() / count;
-        let acceleration = archi.iter().map(|e| e.dense).sum::<f64>() / count;
+        let acceleration = archi.iter().map(|e| e.colbert).sum::<f64>() / count;
         let curvature = archi
             .iter()
-            .map(|e| (e.sparse + e.colbert) / 2.0)
+            .map(|e| (e.sparse + e.relazionale) / 2.0)
             .sum::<f64>()
             / count;
         Some(KinematicState {
@@ -206,14 +206,14 @@ mod tests {
     use super::*;
     use semantic_graph::{Edge, Graph, GraphConfig, NodeId};
 
-    fn arco(from: u64, to: u64, score: f64, dense: f64, sparse: f64, colbert: f64) -> Edge {
+    fn arco(from: u64, to: u64, score: f64, colbert: f64, sparse: f64, relazionale: f64) -> Edge {
         Edge {
             from: NodeId(from),
             to: NodeId(to),
             score,
-            dense,
-            sparse,
             colbert,
+            sparse,
+            relazionale,
         }
     }
 

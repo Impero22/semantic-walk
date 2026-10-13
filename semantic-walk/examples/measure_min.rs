@@ -50,7 +50,7 @@ fn costruisci_grafo(trajectories: &[Vec<Vec<f64>>]) -> Graph {
     let mut visti: HashSet<(u64, u64)> = HashSet::new();
     let push_arco = |archi: &mut Vec<Edge>, visti: &mut HashSet<(u64,u64)>, from: usize, to: usize, sim: f32| {
         if visti.insert((from as u64, to as u64)) {
-            archi.push(Edge { from: NodeId(from as u64), to: NodeId(to as u64), score: sim as f64, dense: sim as f64, sparse: 0.0, colbert: 0.0 });
+            archi.push(Edge { from: NodeId(from as u64), to: NodeId(to as u64), score: sim as f64, colbert: sim as f64, sparse: 0.0, relazionale: 0.0 });
         }
     };
     let mut base2 = 0usize;

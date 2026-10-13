@@ -5,9 +5,9 @@ use semantic_graph::{GraphConfig, NodeId};
 #[test]
 fn selfloop_con_id_duplicati() {
     let fatti = vec![
-        Fatto { id: NodeId(3), dense: 0.9, sparse: 0.8, colbert: 0.7 },
-        Fatto { id: NodeId(1), dense: 0.8, sparse: 0.7, colbert: 0.6 },
-        Fatto { id: NodeId(3), dense: 0.9, sparse: 0.8, colbert: 0.7 }, // duplicato
+        Fatto { id: NodeId(3), colbert: 0.9, sparse: 0.8, relazionale: 0.7 },
+        Fatto { id: NodeId(1), colbert: 0.8, sparse: 0.7, relazionale: 0.6 },
+        Fatto { id: NodeId(3), colbert: 0.9, sparse: 0.8, relazionale: 0.7 }, // duplicato
     ];
     let g = costruisci(&fatti, GraphConfig::default());
     let self_loops: Vec<_> = g.archi.iter().filter(|e| e.from == e.to).collect();

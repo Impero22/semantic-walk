@@ -134,9 +134,7 @@ fn costruisci_grafo(trajectories: &[Vec<Vec<f64>>]) -> Graph {
                 from: NodeId(from as u64),
                 to: NodeId(to as u64),
                 score: sim as f64,
-                dense: sim as f64,
-                sparse: 0.0,
-                colbert: 0.0,
+                colbert: sim as f64, sparse: 0.0, relazionale: 0.0,
             });
         }
     };
